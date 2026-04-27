@@ -11,6 +11,7 @@ export interface WastageDetail {
   reason: string;
   notes: string | null;
   recorded_by: string | null;
+  recorded_by_name: string | null;
   created_at: string;
 }
 

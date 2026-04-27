@@ -406,25 +406,32 @@ function CompleteBatchModal({
   onSaved: () => void;
 }) {
   const [actualYield, setActualYield] = useState('');
-  const [wasteQty, setWasteQty] = useState('0');
+  const [expectedOutput, setExpectedOutput] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    recipesApi
+      .getById(batch.recipe_id)
+      .then((recipe) => {
+        setExpectedOutput(recipe.yield_qty * batch.batch_size);
+      })
+      .catch(() => {});
+  }, [batch.recipe_id, batch.batch_size]);
+
+  const yieldNum = Number(actualYield);
+  const wasteNum =
+    expectedOutput != null && Number.isFinite(yieldNum) && yieldNum >= 0
+      ? Math.max(0, expectedOutput - yieldNum)
+      : 0;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setError('');
 
-    const yieldNum = Number(actualYield);
-    const wasteNum = Number(wasteQty);
-
     if (!Number.isInteger(yieldNum) || yieldNum < 0) {
       setError('Actual yield must be a non-negative integer');
-      setSaving(false);
-      return;
-    }
-    if (!Number.isInteger(wasteNum) || wasteNum < 0) {
-      setError('Waste quantity must be a non-negative integer');
       setSaving(false);
       return;
     }
@@ -460,10 +467,17 @@ function CompleteBatchModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
 
-          <p className="text-sm text-gray-600">
-            Completing <span className="font-medium text-gray-900">{batch.product_name}</span>
-            {' '}(batch size: {batch.batch_size})
-          </p>
+          <div className="text-sm text-gray-600 space-y-1">
+            <p>
+              Completing <span className="font-medium text-gray-900">{batch.product_name}</span>
+              {' '}(batch size: {batch.batch_size})
+            </p>
+            {expectedOutput != null && (
+              <p>
+                Expected output: <span className="font-medium text-gray-900 tabular-nums">{expectedOutput}</span> units
+              </p>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -479,15 +493,10 @@ function CompleteBatchModal({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Waste Qty</label>
-              <input
-                type="number"
-                value={wasteQty}
-                onChange={(e) => setWasteQty(e.target.value)}
-                min={0}
-                step={1}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Waste (auto-calculated)</label>
+              <div className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700 tabular-nums">
+                {actualYield ? wasteNum : '—'}
+              </div>
             </div>
           </div>
 

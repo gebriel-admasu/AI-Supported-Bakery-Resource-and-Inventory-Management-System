@@ -19,13 +19,13 @@ function formatDateTime(iso: string): string {
 }
 
 function stockStatus(
-  quantity: number,
-  minThreshold: number | null
+  quantity: number | string,
+  minThreshold: number | string | null
 ): { label: string; className: string } {
   if (minThreshold == null) {
     return { label: 'No threshold', className: 'bg-gray-100 text-gray-600' };
   }
-  if (quantity >= minThreshold) {
+  if (Number(quantity) >= Number(minThreshold)) {
     return { label: 'OK', className: 'bg-green-50 text-green-700' };
   }
   return { label: 'Low Stock', className: 'bg-amber-50 text-amber-800' };
