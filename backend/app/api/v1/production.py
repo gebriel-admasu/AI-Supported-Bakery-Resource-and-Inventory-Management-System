@@ -10,6 +10,7 @@ from app.api.deps import require_role
 from app.core.constants import BatchStatus, RoleEnum, AlertStatus
 from app.models.production import ProductionBatch
 from app.models.recipe import Recipe, RecipeIngredient
+from app.models.ingredient import Ingredient
 from app.models.product import Product
 from app.models.inventory import Inventory, InventoryStock, StockAlert
 from app.models.user import User
@@ -57,6 +58,9 @@ def _deduct_ingredients(db: Session, recipe_id: UUID, multiplier: int) -> None:
     )
 
     for ri in recipe_ingredients:
+        ingredient = db.query(Ingredient).filter(Ingredient.id == ri.ingredient_id).first()
+        ing_name = ingredient.name if ingredient else str(ri.ingredient_id)
+
         required = Decimal(str(ri.quantity_required)) * multiplier
         stock = (
             db.query(InventoryStock)
@@ -69,13 +73,13 @@ def _deduct_ingredients(db: Session, recipe_id: UUID, multiplier: int) -> None:
         if not stock:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No stock entry for ingredient {ri.ingredient_id}. "
+                detail=f"No stock entry for '{ing_name}'. "
                        f"Add it to inventory before starting production.",
             )
         if Decimal(str(stock.quantity)) < required:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Insufficient stock for ingredient {ri.ingredient_id}. "
+                detail=f"Insufficient stock for '{ing_name}'. "
                        f"Need {required}, have {stock.quantity}.",
             )
         stock.quantity = Decimal(str(stock.quantity)) - required
@@ -201,14 +205,18 @@ async def update_batch(
             batch.status = new_status
         elif new_status == BatchStatus.COMPLETED and old_status == BatchStatus.IN_PROGRESS:
             batch.status = new_status
+            recipe = db.query(Recipe).filter(Recipe.id == batch.recipe_id).first()
+            expected_output = batch.batch_size * (recipe.yield_qty if recipe and recipe.yield_qty else 1)
+
             if "actual_yield" in update_data:
                 batch.actual_yield = update_data["actual_yield"]
             else:
-                batch.actual_yield = batch.batch_size * (
-                    db.query(Recipe).filter(Recipe.id == batch.recipe_id).first().yield_qty or 1
-                )
+                batch.actual_yield = expected_output
+
             if "waste_qty" in update_data:
                 batch.waste_qty = update_data["waste_qty"]
+            else:
+                batch.waste_qty = max(0, expected_output - (batch.actual_yield or 0))
         elif new_status == BatchStatus.CANCELLED and old_status == BatchStatus.PLANNED:
             batch.status = new_status
         else:

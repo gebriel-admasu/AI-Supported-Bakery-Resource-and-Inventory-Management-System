@@ -19,6 +19,7 @@ router = APIRouter()
 def _wastage_response(db: Session, record: WastageRecord) -> dict:
     store = db.query(Store).filter(Store.id == record.store_id).first()
     product = db.query(Product).filter(Product.id == record.product_id).first()
+    recorder = db.query(User).filter(User.id == record.recorded_by).first() if record.recorded_by else None
     return {
         "id": record.id,
         "store_id": record.store_id,
@@ -30,6 +31,7 @@ def _wastage_response(db: Session, record: WastageRecord) -> dict:
         "reason": record.reason.value if record.reason else record.reason,
         "notes": record.notes,
         "recorded_by": record.recorded_by,
+        "recorded_by_name": recorder.full_name if recorder else None,
         "created_at": record.created_at,
     }
 

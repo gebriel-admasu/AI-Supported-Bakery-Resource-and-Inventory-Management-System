@@ -25,6 +25,7 @@ class WastageResponse(BaseModel):
     reason: str
     notes: Optional[str] = None
     recorded_by: Optional[UUID] = None
+    recorded_by_name: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

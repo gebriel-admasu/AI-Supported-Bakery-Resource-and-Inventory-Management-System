@@ -96,6 +96,7 @@ export default function WastagePage() {
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Store</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Recorded By</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reason</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>
@@ -107,6 +108,7 @@ export default function WastagePage() {
                     <td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatDate(r.date)}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{r.store_name ?? '—'}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{r.product_name ?? '—'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700">{r.recorded_by_name ?? r.recorded_by ?? '—'}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{r.quantity}</td>
                     <td className="px-6 py-4">
                       <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${REASON_STYLES[r.reason] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -118,7 +120,7 @@ export default function WastagePage() {
                 ))}
                 {records.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <Trash2 className="text-gray-300" size={40} strokeWidth={1.5} />
                         <p>No wastage records yet.</p>
