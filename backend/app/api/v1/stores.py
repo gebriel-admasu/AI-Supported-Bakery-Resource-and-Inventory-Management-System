@@ -1,7 +1,7 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -16,10 +16,14 @@ router = APIRouter()
 
 @router.get("/", response_model=List[StoreResponse])
 async def list_stores(
+    is_active: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return db.query(Store).order_by(Store.created_at.desc()).all()
+    query = db.query(Store)
+    if is_active is not None:
+        query = query.filter(Store.is_active == is_active)
+    return query.order_by(Store.created_at.desc()).all()
 
 
 @router.post("/", response_model=StoreResponse, status_code=status.HTTP_201_CREATED)

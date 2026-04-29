@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -39,29 +40,43 @@ def get_or_create_production_inventory(db: Session) -> Inventory:
     return inv
 
 
-def _maybe_create_low_stock_alert(db: Session, stock: InventoryStock) -> None:
-    if stock.min_threshold is None:
-        return
-    if stock.quantity >= stock.min_threshold:
-        return
-    existing = (
+def _sync_low_stock_alert(db: Session, stock: InventoryStock) -> None:
+    active_alerts = (
         db.query(StockAlert)
         .filter(
             StockAlert.inventory_stock_id == stock.id,
             StockAlert.status == AlertStatus.ACTIVE,
         )
-        .first()
+        .all()
     )
-    if existing:
+
+    is_low_stock = (
+        stock.min_threshold is not None
+        and stock.quantity < stock.min_threshold
+    )
+
+    if is_low_stock:
+        if active_alerts:
+            for alert in active_alerts:
+                alert.current_qty = stock.quantity
+                alert.min_qty = stock.min_threshold
+                alert.timestamp = datetime.now(timezone.utc)
+            return
+        db.add(
+            StockAlert(
+                inventory_stock_id=stock.id,
+                ingredient_id=stock.ingredient_id,
+                current_qty=stock.quantity,
+                min_qty=stock.min_threshold,
+                status=AlertStatus.ACTIVE,
+            )
+        )
         return
-    alert = StockAlert(
-        inventory_stock_id=stock.id,
-        ingredient_id=stock.ingredient_id,
-        current_qty=stock.quantity,
-        min_qty=stock.min_threshold,
-        status=AlertStatus.ACTIVE,
-    )
-    db.add(alert)
+
+    for alert in active_alerts:
+        alert.status = AlertStatus.RESOLVED
+        alert.current_qty = stock.quantity
+        alert.min_qty = stock.min_threshold if stock.min_threshold is not None else alert.min_qty
 
 
 @router.get("/stocks", response_model=List[InventoryStockResponse])
@@ -119,7 +134,7 @@ async def update_stock(
     if "min_threshold" in update_data:
         stock.min_threshold = update_data["min_threshold"]
 
-    _maybe_create_low_stock_alert(db, stock)
+    _sync_low_stock_alert(db, stock)
     db.commit()
     db.refresh(stock)
 
@@ -185,7 +200,7 @@ async def create_stock(
     )
     db.add(stock)
     db.flush()
-    _maybe_create_low_stock_alert(db, stock)
+    _sync_low_stock_alert(db, stock)
     db.commit()
     db.refresh(stock)
 

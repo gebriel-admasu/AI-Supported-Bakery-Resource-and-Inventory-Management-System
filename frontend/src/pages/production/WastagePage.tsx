@@ -1,8 +1,10 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, type FormEvent } from 'react';
 import { wastageApi, type WastageDetail, type CreateWastagePayload } from '../../api/wastage';
 import { type ProductDetail, productsApi } from '../../api/products';
+import { ingredientsApi } from '../../api/ingredients';
 import { storesApi } from '../../api/stores';
 import type { Store } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 import { Plus, Trash2, X } from 'lucide-react';
 
 const REASON_OPTIONS = [
@@ -32,17 +34,60 @@ function reasonLabel(value: string): string {
 }
 
 export default function WastagePage() {
+  const { role, user } = useAuth();
+  const canRecordWastage =
+    role === 'owner' || role === 'production_manager' || role === 'store_manager';
   const [records, setRecords] = useState<WastageDetail[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [ownerView, setOwnerView] = useState<string>('all');
+
+  const filteredRecords = records.filter((r) => {
+    if (role !== 'owner') return true;
+    if (ownerView === 'all') return true;
+    if (ownerView === 'production_products') {
+      return r.source_type === 'production' && r.product_id != null;
+    }
+    if (ownerView === 'production_ingredients') {
+      return r.source_type === 'production' && r.ingredient_id != null;
+    }
+    if (ownerView.startsWith('store:')) {
+      const storeId = ownerView.slice('store:'.length);
+      return r.source_type === 'store' && r.store_id === storeId;
+    }
+    return true;
+  });
+
+  const ownerSummary = useMemo(() => {
+    const storeWastageQty = records
+      .filter((r) => r.source_type === 'store')
+      .reduce((sum, r) => sum + r.quantity, 0);
+    const productionProductQty = records
+      .filter((r) => r.source_type === 'production' && r.product_id != null)
+      .reduce((sum, r) => sum + r.quantity, 0);
+    const ingredientWastageQty = records
+      .filter((r) => r.source_type === 'production' && r.ingredient_id != null)
+      .reduce((sum, r) => sum + r.quantity, 0);
+    return {
+      storeWastageQty,
+      productionProductQty,
+      ingredientWastageQty,
+    };
+  }, [records]);
 
   async function fetchRecords() {
     try {
       setLoading(true);
       setError('');
-      const data = await wastageApi.list();
+      const tasks: Promise<unknown>[] = [wastageApi.list()];
+      if (role === 'owner') tasks.push(storesApi.list({ is_active: true }));
+      const [data, storeData] = await Promise.all(tasks) as [WastageDetail[], Store[]?];
       setRecords(data);
+      if (storeData) {
+        setStores(storeData);
+      }
     } catch {
       setError('Failed to load wastage records');
     } finally {
@@ -64,17 +109,93 @@ export default function WastagePage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Wastage Records</h1>
-          <p className="text-gray-500 mt-1">Track and record product wastage across stores</p>
+          <p className="text-gray-500 mt-1">Track store and production wastage records</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="flex items-center justify-center gap-2 bg-primary-600 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-primary-700 transition-colors shrink-0"
-        >
-          <Plus size={18} />
-          Record Wastage
-        </button>
+        {canRecordWastage ? (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="flex items-center justify-center gap-2 bg-primary-600 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-primary-700 transition-colors shrink-0"
+          >
+            <Plus size={18} />
+            Record Wastage
+          </button>
+        ) : (
+          <span className="text-xs text-gray-500">Read-only view for finance manager</span>
+        )}
       </div>
+
+      {role === 'owner' && (
+        <div className="mb-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Store Wastage</p>
+              <p className="text-xl font-bold text-blue-900 tabular-nums mt-1">{ownerSummary.storeWastageQty}</p>
+            </div>
+            <div className="bg-purple-50 border border-purple-100 rounded-lg px-4 py-3">
+              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Production Products</p>
+              <p className="text-xl font-bold text-purple-900 tabular-nums mt-1">{ownerSummary.productionProductQty}</p>
+            </div>
+            <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Ingredient Wastage</p>
+              <p className="text-xl font-bold text-amber-900 tabular-nums mt-1">{ownerSummary.ingredientWastageQty}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setOwnerView('all')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                ownerView === 'all'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              All Wastage
+            </button>
+            {stores.map((s) => {
+              const key = `store:${s.id}`;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setOwnerView(key)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    ownerView === key
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {s.name} Wastage
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setOwnerView('production_products')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                ownerView === 'production_products'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Production Product Wastage
+            </button>
+            <button
+              type="button"
+              onClick={() => setOwnerView('production_ingredients')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                ownerView === 'production_ingredients'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Ingredient Wastage
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
@@ -94,8 +215,9 @@ export default function WastagePage() {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Store</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Item</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Recorded By</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reason</th>
@@ -103,11 +225,20 @@ export default function WastagePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {records.map((r) => (
+                {filteredRecords.map((r) => (
                   <tr key={r.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatDate(r.date)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{r.store_name ?? '—'}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{r.product_name ?? '—'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                        r.source_type === 'production' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'
+                      }`}>
+                        {r.source_type === 'production' ? 'Production' : 'Store'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">{r.source_type === 'production' ? 'Production Inventory' : (r.store_name ?? '—')}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      {r.source_type === 'production' ? (r.ingredient_name ?? '—') : (r.product_name ?? '—')}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-700">{r.recorded_by_name ?? r.recorded_by ?? '—'}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{r.quantity}</td>
                     <td className="px-6 py-4">
@@ -118,9 +249,9 @@ export default function WastagePage() {
                     <td className="px-6 py-4 text-sm text-gray-500 max-w-[200px] truncate">{r.notes ?? '—'}</td>
                   </tr>
                 ))}
-                {records.length === 0 && (
+                {filteredRecords.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <Trash2 className="text-gray-300" size={40} strokeWidth={1.5} />
                         <p>No wastage records yet.</p>
@@ -134,8 +265,10 @@ export default function WastagePage() {
         )}
       </div>
 
-      {showModal && (
+      {showModal && canRecordWastage && (
         <WastageFormModal
+          role={role}
+          userStoreId={user?.store_id}
           onClose={() => setShowModal(false)}
           onSaved={handleSaved}
         />
@@ -145,18 +278,28 @@ export default function WastagePage() {
 }
 
 function WastageFormModal({
+  role,
+  userStoreId,
   onClose,
   onSaved,
 }: {
+  role: string | null;
+  userStoreId?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [products, setProducts] = useState<ProductDetail[]>([]);
+  const [ingredients, setIngredients] = useState<Array<{ id: string; name: string; unit: string }>>([]);
   const [loadingData, setLoadingData] = useState(true);
 
+  const [sourceType, setSourceType] = useState<'store' | 'production'>(
+    role === 'production_manager' ? 'production' : 'store'
+  );
+  const [productionItemType, setProductionItemType] = useState<'ingredient' | 'product'>('ingredient');
   const [storeId, setStoreId] = useState('');
   const [productId, setProductId] = useState('');
+  const [ingredientId, setIngredientId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [reason, setReason] = useState('spoilage');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -164,17 +307,33 @@ function WastageFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const roleSourceType =
+    role === 'store_manager' ? 'store' : role === 'production_manager' ? 'production' : null;
+
   useEffect(() => {
-    Promise.all([storesApi.list(), productsApi.list({ is_active: true })])
-      .then(([s, p]) => {
+    const tasks: Promise<unknown>[] = [];
+    tasks.push(storesApi.list({ is_active: true }));
+    tasks.push(productsApi.list({ is_active: true }));
+    if (role !== 'store_manager') {
+      tasks.push(ingredientsApi.list({ is_active: true }));
+    }
+
+    Promise.all(tasks)
+      .then((results) => {
+        const s = results[0] as Store[];
+        const p = results[1] as ProductDetail[];
+        const ing = (results[2] as Array<{ id: string; name: string; unit: string }> | undefined) ?? [];
         setStores(s);
         setProducts(p);
-        if (s.length > 0) setStoreId(s[0].id);
+        setIngredients(ing);
+        if (userStoreId) setStoreId(userStoreId);
+        else if (s.length > 0) setStoreId(s[0].id);
         if (p.length > 0) setProductId(p[0].id);
+        if (ing.length > 0) setIngredientId(ing[0].id);
       })
-      .catch(() => setError('Failed to load stores/products'))
+      .catch(() => setError('Failed to load wastage form data'))
       .finally(() => setLoadingData(false));
-  }, []);
+  }, [role, userStoreId]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -190,13 +349,19 @@ function WastageFormModal({
 
     try {
       const payload: CreateWastagePayload = {
-        store_id: storeId,
-        product_id: productId,
+        source_type: roleSourceType ?? sourceType,
         date,
         quantity: qty,
         reason,
         notes: notes.trim() || undefined,
       };
+      if ((roleSourceType ?? sourceType) === 'store') {
+        payload.store_id = userStoreId ?? storeId;
+        payload.product_id = productId;
+      } else {
+        if (productionItemType === 'ingredient') payload.ingredient_id = ingredientId;
+        else payload.product_id = productId;
+      }
       await wastageApi.create(payload);
       onSaved();
     } catch (err: unknown) {
@@ -226,12 +391,29 @@ function WastageFormModal({
             <p className="text-sm text-gray-400">Loading data...</p>
           ) : (
             <>
+              {roleSourceType == null && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Wastage Source</label>
+                  <select
+                    value={sourceType}
+                    onChange={(e) => setSourceType(e.target.value as 'store' | 'production')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+                  >
+                    <option value="store">Store Wastage (Product)</option>
+                    <option value="production">Production Wastage (Ingredient)</option>
+                  </select>
+                </div>
+              )}
+
+              {(roleSourceType ?? sourceType) === 'store' ? (
+                <>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Store</label>
                 <select
-                  value={storeId}
+                  value={userStoreId ?? storeId}
                   onChange={(e) => setStoreId(e.target.value)}
                   required
+                  disabled={!!userStoreId}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
                 >
                   {stores.map((s) => (
@@ -257,6 +439,55 @@ function WastageFormModal({
                   ))}
                 </select>
               </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Production Wastage Type</label>
+                    <select
+                      value={productionItemType}
+                      onChange={(e) => setProductionItemType(e.target.value as 'ingredient' | 'product')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+                    >
+                      <option value="ingredient">Ingredient Wastage (raw material)</option>
+                      <option value="product">Product Wastage (finished product)</option>
+                    </select>
+                  </div>
+                  {productionItemType === 'ingredient' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ingredient</label>
+                      <select
+                        value={ingredientId}
+                        onChange={(e) => setIngredientId(e.target.value)}
+                        required
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+                      >
+                        {ingredients.map((ing) => (
+                          <option key={ing.id} value={ing.id}>
+                            {ing.name} ({ing.unit})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
+                      <select
+                        value={productId}
+                        onChange={(e) => setProductId(e.target.value)}
+                        required
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+                      >
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.sku})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>

@@ -4,8 +4,10 @@ import enum
 class RoleEnum(str, enum.Enum):
     ADMIN = "admin"
     OWNER = "owner"
+    FINANCE_MANAGER = "finance_manager"
     PRODUCTION_MANAGER = "production_manager"
     STORE_MANAGER = "store_manager"
+    DELIVERY_STAFF = "delivery_staff"
 
 
 class BatchStatus(str, enum.Enum):
@@ -22,12 +24,24 @@ class DistributionStatus(str, enum.Enum):
     CONFIRMED = "confirmed"
 
 
+class DiscrepancyStatus(str, enum.Enum):
+    NONE = "none"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class WastageReason(str, enum.Enum):
     SPOILAGE = "spoilage"
     DAMAGE = "damage"
     EXPIRY = "expiry"
     PRODUCTION_LOSS = "production_loss"
     OTHER = "other"
+
+
+class WastageSourceType(str, enum.Enum):
+    STORE = "store"
+    PRODUCTION = "production"
 
 
 class AlertStatus(str, enum.Enum):

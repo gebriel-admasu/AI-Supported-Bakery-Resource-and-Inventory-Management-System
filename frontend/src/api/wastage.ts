@@ -2,10 +2,13 @@ import apiClient from './client';
 
 export interface WastageDetail {
   id: string;
-  store_id: string;
+  source_type: 'store' | 'production';
+  store_id: string | null;
   store_name: string | null;
-  product_id: string;
+  product_id: string | null;
   product_name: string | null;
+  ingredient_id: string | null;
+  ingredient_name: string | null;
   date: string;
   quantity: number;
   reason: string;
@@ -16,8 +19,10 @@ export interface WastageDetail {
 }
 
 export interface CreateWastagePayload {
-  store_id: string;
-  product_id: string;
+  source_type: 'store' | 'production';
+  store_id?: string;
+  product_id?: string;
+  ingredient_id?: string;
   date: string;
   quantity: number;
   reason: string;
@@ -25,7 +30,12 @@ export interface CreateWastagePayload {
 }
 
 export const wastageApi = {
-  list: async (params?: { store_id?: string; product_id?: string }): Promise<WastageDetail[]> => {
+  list: async (params?: {
+    source_type?: 'store' | 'production';
+    store_id?: string;
+    product_id?: string;
+    ingredient_id?: string;
+  }): Promise<WastageDetail[]> => {
     const response = await apiClient.get('/wastage/', { params });
     return response.data;
   },

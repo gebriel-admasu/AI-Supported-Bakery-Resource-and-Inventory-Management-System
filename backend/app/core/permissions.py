@@ -21,6 +21,15 @@ ROLE_PERMISSIONS = {
         "view_forecasts", "view_reports", "export_reports",
         "view_dashboard", "view_mlops",
     ],
+    RoleEnum.FINANCE_MANAGER: [
+        "view_dashboard",
+        "view_all_sales",
+        "view_all_stores",
+        "view_financials",
+        "view_reports",
+        "export_reports",
+        "view_audit_logs",
+    ],
     RoleEnum.PRODUCTION_MANAGER: [
         "manage_ingredients", "view_inventory",
         "manage_recipes", "manage_products",
@@ -35,6 +44,11 @@ ROLE_PERMISSIONS = {
         "record_wastage",
         "confirm_receipt",
         "view_own_reports",
+        "view_dashboard",
+    ],
+    RoleEnum.DELIVERY_STAFF: [
+        "view_assigned_distribution",
+        "update_delivery_status",
         "view_dashboard",
     ],
 }
