@@ -1,17 +1,22 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import type { User, UserRole } from '../../types';
 import { usersApi, type CreateUserPayload, type UpdateUserPayload } from '../../api/users';
+import { storesApi } from '../../api/stores';
+import type { Store } from '../../types';
 import { UserPlus, Pencil, ShieldCheck, ShieldOff, X } from 'lucide-react';
 
 const ROLES: { value: UserRole; label: string }[] = [
   { value: 'admin', label: 'Admin' },
   { value: 'owner', label: 'Owner' },
+  { value: 'finance_manager', label: 'Finance Manager' },
   { value: 'production_manager', label: 'Production Manager' },
   { value: 'store_manager', label: 'Store Manager' },
+  { value: 'delivery_staff', label: 'Delivery Staff' },
 ];
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -29,8 +34,18 @@ export default function UserManagementPage() {
     }
   };
 
+  const fetchStores = async () => {
+    try {
+      const data = await storesApi.list({ is_active: true });
+      setStores(data);
+    } catch {
+      setError('Failed to load stores');
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchStores();
   }, []);
 
   const handleToggleStatus = async (user: User) => {
@@ -94,6 +109,7 @@ export default function UserManagementPage() {
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Store</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
                 <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
@@ -119,6 +135,9 @@ export default function UserManagementPage() {
                     <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 capitalize">
                       {user.role.replace('_', ' ')}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-600">
+                    {user.store_id ? (stores.find((s) => s.id === user.store_id)?.name ?? '—') : '—'}
                   </td>
                   <td className="px-6 py-4">
                     <span
@@ -160,7 +179,7 @@ export default function UserManagementPage() {
               ))}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
                     No users found
                   </td>
                 </tr>
@@ -173,6 +192,7 @@ export default function UserManagementPage() {
       {showModal && (
         <UserFormModal
           user={editingUser}
+          stores={stores}
           onClose={() => { setShowModal(false); setEditingUser(null); }}
           onSaved={handleSaved}
         />
@@ -183,10 +203,12 @@ export default function UserManagementPage() {
 
 function UserFormModal({
   user,
+  stores,
   onClose,
   onSaved,
 }: {
   user: User | null;
+  stores: Store[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -197,6 +219,7 @@ function UserFormModal({
     email: user?.email ?? '',
     full_name: user?.full_name ?? '',
     role: (user?.role ?? 'store_manager') as UserRole,
+    store_id: user?.store_id ?? '',
     password: '',
   });
   const [saving, setSaving] = useState(false);
@@ -217,15 +240,22 @@ function UserFormModal({
           email: form.email,
           full_name: form.full_name,
           role: form.role,
+          store_id: form.role === 'store_manager' ? (form.store_id || undefined) : null,
         };
         if (form.password) payload.password = form.password;
         await usersApi.update(user!.id, payload);
       } else {
+        if (form.role === 'store_manager' && !form.store_id) {
+          setError('Please select a store for store manager');
+          setSaving(false);
+          return;
+        }
         const payload: CreateUserPayload = {
           username: form.username,
           email: form.email,
           full_name: form.full_name,
           role: form.role,
+          store_id: form.role === 'store_manager' ? form.store_id : undefined,
           password: form.password,
         };
         await usersApi.create(payload);
@@ -297,7 +327,14 @@ function UserFormModal({
             <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
             <select
               value={form.role}
-              onChange={(e) => handleChange('role', e.target.value)}
+              onChange={(e) => {
+                const nextRole = e.target.value as UserRole;
+                setForm((prev) => ({
+                  ...prev,
+                  role: nextRole,
+                  store_id: nextRole === 'store_manager' ? (prev.store_id || stores[0]?.id || '') : '',
+                }));
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
             >
               {ROLES.map((r) => (
@@ -307,6 +344,25 @@ function UserFormModal({
               ))}
             </select>
           </div>
+
+          {form.role === 'store_manager' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Store</label>
+              <select
+                value={form.store_id}
+                onChange={(e) => handleChange('store_id', e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+              >
+                <option value="">Select store...</option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

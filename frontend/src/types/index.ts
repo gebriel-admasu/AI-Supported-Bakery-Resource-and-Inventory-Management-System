@@ -9,7 +9,13 @@
   created_at: string;
 }
 
-export type UserRole = 'admin' | 'owner' | 'production_manager' | 'store_manager';
+export type UserRole =
+  | 'admin'
+  | 'owner'
+  | 'finance_manager'
+  | 'production_manager'
+  | 'store_manager'
+  | 'delivery_staff';
 
 export interface AuthTokens {
   access_token: string;
@@ -67,12 +73,22 @@ export interface RecipeIngredient {
 export interface SalesRecord {
   id: string;
   store_id: string;
+  store_name?: string | null;
   product_id: string;
+  product_name?: string | null;
   date: string;
   opening_stock: number;
   quantity_sold: number;
   closing_stock: number;
+  wastage_qty?: number;
+  expected_closing?: number;
+  variance_qty?: number;
   total_amount: number;
+  is_closed?: boolean;
+  closed_at?: string | null;
+  notes?: string | null;
+  recorded_by?: string | null;
+  updated_at?: string | null;
 }
 
 export interface DemandForecast {

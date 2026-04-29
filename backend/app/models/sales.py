@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date, timezone
 
-from sqlalchemy import Column, Integer, Numeric, Date, DateTime, ForeignKey, Uuid
+from sqlalchemy import Column, Integer, Numeric, Date, DateTime, ForeignKey, Boolean, String, Uuid
 
 from app.database import Base
 
@@ -16,6 +16,15 @@ class SalesRecord(Base):
     opening_stock = Column(Integer, nullable=False, default=0)
     quantity_sold = Column(Integer, nullable=False, default=0)
     closing_stock = Column(Integer, nullable=False, default=0)
+    wastage_qty = Column(Integer, nullable=False, default=0)
     total_amount = Column(Numeric(12, 2), nullable=False, default=0)
+    is_closed = Column(Boolean, nullable=False, default=False)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(String(255), nullable=True)
     recorded_by = Column(Uuid, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

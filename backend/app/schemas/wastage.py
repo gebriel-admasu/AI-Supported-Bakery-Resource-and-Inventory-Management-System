@@ -6,8 +6,10 @@ from pydantic import BaseModel
 
 
 class WastageCreate(BaseModel):
-    store_id: UUID
-    product_id: UUID
+    source_type: str = "store"
+    store_id: Optional[UUID] = None
+    product_id: Optional[UUID] = None
+    ingredient_id: Optional[UUID] = None
     date: date
     quantity: int
     reason: str
@@ -16,10 +18,13 @@ class WastageCreate(BaseModel):
 
 class WastageResponse(BaseModel):
     id: UUID
-    store_id: UUID
+    source_type: str
+    store_id: Optional[UUID] = None
     store_name: Optional[str] = None
-    product_id: UUID
+    product_id: Optional[UUID] = None
     product_name: Optional[str] = None
+    ingredient_id: Optional[UUID] = None
+    ingredient_name: Optional[str] = None
     date: date
     quantity: int
     reason: str
