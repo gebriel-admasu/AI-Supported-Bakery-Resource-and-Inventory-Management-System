@@ -69,12 +69,34 @@ def seed_db():
         )
         db.add(store_manager)
 
+        delivery_staff = User(
+            username="delivery1",
+            email="delivery@bakery.com",
+            password_hash=hash_password("delivery123"),
+            full_name="Delivery Staff",
+            role=RoleEnum.DELIVERY_STAFF,
+            is_active=True,
+        )
+        db.add(delivery_staff)
+
+        finance_manager = User(
+            username="finance1",
+            email="finance@bakery.com",
+            password_hash=hash_password("finance123"),
+            full_name="Finance Manager",
+            role=RoleEnum.FINANCE_MANAGER,
+            is_active=True,
+        )
+        db.add(finance_manager)
+
         db.commit()
         print("Database seeded successfully!")
         print("  Admin:    admin / admin123")
         print("  Owner:    owner / owner123")
         print("  ProdMgr:  production / prod123")
         print("  StoreMgr: storemanager / store123")
+        print("  Delivery: delivery1 / delivery123")
+        print("  Finance:  finance1 / finance123")
         print(f"  Stores:   {main_store.name}, {branch_store.name}")
 
     except Exception as e:

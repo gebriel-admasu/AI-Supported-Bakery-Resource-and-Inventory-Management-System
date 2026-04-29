@@ -8,7 +8,9 @@ import {
 } from '../../api/distribution';
 import { type ProductDetail, productsApi } from '../../api/products';
 import { storesApi } from '../../api/stores';
-import type { Store } from '../../types';
+import { usersApi } from '../../api/users';
+import type { Store, User } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 import {
   Plus,
   Truck,
@@ -17,6 +19,7 @@ import {
   ArrowRight,
   X,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 const STATUS_OPTIONS = ['all', 'dispatched', 'in_transit', 'received', 'confirmed'] as const;
@@ -35,18 +38,35 @@ const STATUS_LABELS: Record<string, string> = {
   confirmed: 'Confirmed',
 };
 
+const DISCREPANCY_STYLES: Record<string, string> = {
+  none: 'bg-gray-100 text-gray-600',
+  pending_approval: 'bg-amber-50 text-amber-700',
+  approved: 'bg-green-50 text-green-700',
+  rejected: 'bg-red-50 text-red-700',
+};
+
+const DISCREPANCY_LABELS: Record<string, string> = {
+  none: 'No discrepancy',
+  pending_approval: 'Pending approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+};
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 }
 
 export default function DistributionPage() {
+  const { role } = useAuth();
   const [distributions, setDistributions] = useState<DistributionDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [receiveTarget, setReceiveTarget] = useState<DistributionDetail | null>(null);
+  const canCreateDispatch = role === 'owner' || role === 'production_manager';
+  const canReviewDiscrepancy = role === 'owner' || role === 'production_manager';
 
   async function fetchDistributions() {
     try {
@@ -68,18 +88,17 @@ export default function DistributionPage() {
   }, [statusFilter]);
 
   const handleAdvanceStatus = async (dist: DistributionDetail) => {
-    const next: Record<string, string> = {
-      dispatched: 'in_transit',
-      in_transit: 'received',
-      received: 'confirmed',
-    };
-    const nextStatus = next[dist.status];
-    if (!nextStatus) return;
-
     if (dist.status === 'in_transit') {
       setReceiveTarget(dist);
       return;
     }
+
+    const next: Record<string, string> = {
+      dispatched: 'in_transit',
+      received: 'confirmed',
+    };
+    const nextStatus = next[dist.status];
+    if (!nextStatus) return;
 
     try {
       setError('');
@@ -90,6 +109,47 @@ export default function DistributionPage() {
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
         'Failed to update status';
       setError(typeof msg === 'string' ? msg : 'Failed to update status');
+    }
+  };
+
+  const handleApproveDiscrepancy = async (dist: DistributionDetail) => {
+    const reviewNote = window.prompt('Approval note (optional):') ?? undefined;
+    try {
+      setError('');
+      await distributionApi.approveDiscrepancy(dist.id, { review_note: reviewNote });
+      await fetchDistributions();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Failed to approve discrepancy';
+      setError(typeof msg === 'string' ? msg : 'Failed to approve discrepancy');
+    }
+  };
+
+  const handleRejectDiscrepancy = async (dist: DistributionDetail) => {
+    const reviewNote = window.prompt('Rejection note (optional):') ?? undefined;
+    try {
+      setError('');
+      await distributionApi.rejectDiscrepancy(dist.id, { review_note: reviewNote });
+      await fetchDistributions();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Failed to reject discrepancy';
+      setError(typeof msg === 'string' ? msg : 'Failed to reject discrepancy');
+    }
+  };
+
+  const handleDriverCountConfirm = async (dist: DistributionDetail) => {
+    try {
+      setError('');
+      await distributionApi.confirmDriverCount(dist.id);
+      await fetchDistributions();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Failed to confirm loaded counts';
+      setError(typeof msg === 'string' ? msg : 'Failed to confirm loaded counts');
     }
   };
 
@@ -106,14 +166,16 @@ export default function DistributionPage() {
           <h1 className="text-2xl font-bold text-gray-900">Distribution</h1>
           <p className="text-gray-500 mt-1">Dispatch products to stores and track delivery</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center justify-center gap-2 bg-primary-600 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-primary-700 transition-colors shrink-0"
-        >
-          <Plus size={18} />
-          New Dispatch
-        </button>
+        {canCreateDispatch && (
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center justify-center gap-2 bg-primary-600 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-primary-700 transition-colors shrink-0"
+          >
+            <Plus size={18} />
+            New Dispatch
+          </button>
+        )}
       </div>
 
       {error && (
@@ -149,6 +211,7 @@ export default function DistributionPage() {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Store</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Delivery Staff</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Dispatch Date</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Items</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
@@ -159,35 +222,128 @@ export default function DistributionPage() {
                 {distributions.map((d) => (
                   <tr key={d.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{d.store_name ?? '—'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700">{d.delivery_person_name ?? '—'}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatDate(d.dispatch_date)}</td>
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-1">
                         {d.items.map((it) => (
-                          <span key={it.id} className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
-                            {it.product_name ?? 'Product'}: {it.quantity_sent}
-                            {it.quantity_received != null && (
-                              <span className="text-green-600 ml-1">({it.quantity_received} rcvd)</span>
+                          <div
+                            key={it.id}
+                            className={`px-2 py-1 rounded text-xs ${
+                              it.discrepancy_qty !== 0 ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
+                            }`}
+                          >
+                            <span>
+                              {it.product_name ?? 'Product'}: {it.quantity_sent}
+                              {it.quantity_received != null && (
+                                <span className="text-green-600 ml-1">({it.quantity_received} rcvd)</span>
+                              )}
+                              {it.discrepancy_qty !== 0 && (
+                                <span className="ml-1 font-medium">(diff {it.discrepancy_qty})</span>
+                              )}
+                            </span>
+                            {it.discrepancy_qty !== 0 && (
+                              <div className="mt-0.5 text-[11px] leading-4 text-amber-800">
+                                Reason: {it.discrepancy_reason ?? '—'}
+                                {it.discrepancy_note ? ` | Note: ${it.discrepancy_note}` : ''}
+                              </div>
                             )}
-                          </span>
+                          </div>
                         ))}
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[d.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {STATUS_LABELS[d.status] ?? d.status}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[d.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {STATUS_LABELS[d.status] ?? d.status}
+                        </span>
+                        {d.has_discrepancy && (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${DISCREPANCY_STYLES[d.discrepancy_status] ?? 'bg-gray-100 text-gray-600'}`}>
+                            <AlertTriangle size={12} />
+                            {DISCREPANCY_LABELS[d.discrepancy_status] ?? d.discrepancy_status}
+                          </span>
+                        )}
+                        {d.status === 'in_transit' && (
+                          <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${
+                            d.driver_count_confirmed ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+                          }`}>
+                            {d.driver_count_confirmed ? 'Driver Count Confirmed' : 'Driver Count Pending'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      {!d.is_locked && d.status !== 'confirmed' && (
+                      {!d.is_locked && d.status === 'dispatched' && (role === 'owner' || role === 'production_manager') && (
                         <button
                           type="button"
                           onClick={() => handleAdvanceStatus(d)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors"
-                          title={`Advance to next status`}
+                          title="Advance to next status"
                         >
-                          {d.status === 'dispatched' && <><Truck size={14} /> Mark In Transit</>}
-                          {d.status === 'in_transit' && <><PackageCheck size={14} /> Receive</>}
-                          {d.status === 'received' && <><CheckCircle2 size={14} /> Confirm</>}
+                          <Truck size={14} /> {role === 'delivery_staff' ? 'Start Delivery' : 'Mark In Transit'}
+                          <ArrowRight size={12} />
+                        </button>
+                      )}
+                      {!d.is_locked && d.status === 'in_transit' && role === 'delivery_staff' && !d.driver_count_confirmed && (
+                        <button
+                          type="button"
+                          onClick={() => handleDriverCountConfirm(d)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors"
+                          title="Confirm loaded counts"
+                        >
+                          <CheckCircle2 size={14} /> Confirm Loaded Qty
+                        </button>
+                      )}
+                      {!d.is_locked && d.status === 'in_transit' && role === 'delivery_staff' && d.driver_count_confirmed && (
+                        <span className="text-xs text-gray-500">Counts confirmed. Awaiting store receipt</span>
+                      )}
+                      {!d.is_locked && d.status === 'in_transit' && d.driver_count_confirmed && (role === 'owner' || role === 'store_manager') && (
+                        <button
+                          type="button"
+                          onClick={() => handleAdvanceStatus(d)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors"
+                          title="Record received quantities"
+                        >
+                          <PackageCheck size={14} /> Receive
+                          <ArrowRight size={12} />
+                        </button>
+                      )}
+                      {!d.is_locked && d.status === 'received' && d.has_discrepancy && d.discrepancy_status === 'rejected' && (role === 'owner' || role === 'store_manager') && (
+                        <button
+                          type="button"
+                          onClick={() => setReceiveTarget(d)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                          title="Re-enter received quantities after rejection"
+                        >
+                          <PackageCheck size={14} /> Re-Receive
+                        </button>
+                      )}
+                      {!d.is_locked && d.status === 'received' && d.has_discrepancy && d.discrepancy_status === 'pending_approval' && canReviewDiscrepancy && (
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleApproveDiscrepancy(d)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRejectDiscrepancy(d)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                      {!d.is_locked && d.status === 'received' && (!d.has_discrepancy || d.discrepancy_status === 'approved') && canReviewDiscrepancy && (
+                        <button
+                          type="button"
+                          onClick={() => handleAdvanceStatus(d)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors"
+                          title="Advance to next status"
+                        >
+                          <CheckCircle2 size={14} /> Confirm
                           <ArrowRight size={12} />
                         </button>
                       )}
@@ -199,7 +355,7 @@ export default function DistributionPage() {
                 ))}
                 {distributions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-gray-400">
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <Truck className="text-gray-300" size={40} strokeWidth={1.5} />
                         <p>No distributions found. Create a dispatch to get started.</p>
@@ -240,20 +396,28 @@ function CreateDistributionModal({
 }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [products, setProducts] = useState<ProductDetail[]>([]);
+  const [deliveryStaff, setDeliveryStaff] = useState<User[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const [storeId, setStoreId] = useState('');
+  const [deliveryPersonId, setDeliveryPersonId] = useState('');
   const [dispatchDate, setDispatchDate] = useState(new Date().toISOString().slice(0, 10));
   const [lines, setLines] = useState<DistItemPayload[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([storesApi.list(), productsApi.list({ is_active: true })])
-      .then(([s, p]) => {
+    Promise.all([
+      storesApi.list({ is_active: true }),
+      productsApi.list({ is_active: true }),
+      usersApi.list({ role: 'delivery_staff', is_active: true }),
+    ])
+      .then(([s, p, staff]) => {
         setStores(s);
         setProducts(p);
+        setDeliveryStaff(staff);
         if (s.length > 0) setStoreId(s[0].id);
+        if (staff.length > 0) setDeliveryPersonId(staff[0].id);
       })
       .catch(() => setError('Failed to load data'))
       .finally(() => setLoadingData(false));
@@ -300,9 +464,16 @@ function CreateDistributionModal({
     }
 
     try {
+      if (!deliveryPersonId) {
+        setError('Select a delivery staff member');
+        setSaving(false);
+        return;
+      }
+
       const payload: CreateDistributionPayload = {
         store_id: storeId,
         dispatch_date: dispatchDate,
+        delivery_person_id: deliveryPersonId,
         items: lines,
       };
       await distributionApi.create(payload);
@@ -334,7 +505,7 @@ function CreateDistributionModal({
             <p className="text-sm text-gray-400">Loading data...</p>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Destination Store</label>
                   <select
@@ -345,6 +516,19 @@ function CreateDistributionModal({
                   >
                     {stores.map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Staff</label>
+                  <select
+                    value={deliveryPersonId}
+                    onChange={(e) => setDeliveryPersonId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
+                  >
+                    {deliveryStaff.map((staff) => (
+                      <option key={staff.id} value={staff.id}>{staff.full_name}</option>
                     ))}
                   </select>
                 </div>
@@ -454,6 +638,20 @@ function ReceiveModal({
     }
     return m;
   });
+  const [discrepancyReasons, setDiscrepancyReasons] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const it of distribution.items) {
+      m[it.id] = it.discrepancy_reason ?? '';
+    }
+    return m;
+  });
+  const [discrepancyNotes, setDiscrepancyNotes] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const it of distribution.items) {
+      m[it.id] = it.discrepancy_note ?? '';
+    }
+    return m;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -462,14 +660,27 @@ function ReceiveModal({
     setSaving(true);
     setError('');
 
-    const items: ReceiveItemPayload[] = distribution.items.map((it) => ({
-      item_id: it.id,
-      quantity_received: Number(receivedQtys[it.id]) || 0,
-    }));
+    const items: ReceiveItemPayload[] = distribution.items.map((it) => {
+      const received = Number(receivedQtys[it.id]) || 0;
+      const discrepancyQty = it.quantity_sent - received;
+      return {
+        item_id: it.id,
+        quantity_received: received,
+        discrepancy_reason: discrepancyQty !== 0 ? discrepancyReasons[it.id]?.trim() || undefined : undefined,
+        discrepancy_note: discrepancyQty !== 0 ? discrepancyNotes[it.id]?.trim() || undefined : undefined,
+      };
+    });
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
       if (item.quantity_received < 0) {
         setError('Received quantities cannot be negative');
+        setSaving(false);
+        return;
+      }
+      const sentQty = distribution.items[i].quantity_sent;
+      if (sentQty !== item.quantity_received && !item.discrepancy_reason) {
+        setError('Discrepancy reason is required when sent and received differ');
         setSaving(false);
         return;
       }
@@ -507,28 +718,65 @@ function ReceiveModal({
           </p>
 
           <div className="space-y-3">
-            {distribution.items.map((it) => (
-              <div key={it.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{it.product_name ?? 'Product'}</p>
-                  <p className="text-xs text-gray-500">Sent: {it.quantity_sent}</p>
+            {distribution.items.map((it) => {
+              const receivedValue = Number(receivedQtys[it.id]) || 0;
+              const discrepancyQty = it.quantity_sent - receivedValue;
+              const hasDiscrepancy = discrepancyQty !== 0;
+              return (
+                <div key={it.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900">{it.product_name ?? 'Product'}</p>
+                      <p className="text-xs text-gray-500">
+                        Sent: {it.quantity_sent}
+                        {hasDiscrepancy && (
+                          <span className="ml-2 text-amber-700 font-medium">
+                            Difference: {discrepancyQty}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-gray-500">Received:</label>
+                      <input
+                        type="number"
+                        value={receivedQtys[it.id] ?? ''}
+                        onChange={(e) =>
+                          setReceivedQtys((prev) => ({ ...prev, [it.id]: e.target.value }))
+                        }
+                        min={0}
+                        step={1}
+                        required
+                        className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none text-right tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  {hasDiscrepancy && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={discrepancyReasons[it.id] ?? ''}
+                        onChange={(e) =>
+                          setDiscrepancyReasons((prev) => ({ ...prev, [it.id]: e.target.value }))
+                        }
+                        required
+                        placeholder="Reason (required)"
+                        className="px-2 py-1.5 border border-amber-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        value={discrepancyNotes[it.id] ?? ''}
+                        onChange={(e) =>
+                          setDiscrepancyNotes((prev) => ({ ...prev, [it.id]: e.target.value }))
+                        }
+                        placeholder="Note (optional)"
+                        className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <label className="text-xs text-gray-500">Received:</label>
-                  <input
-                    type="number"
-                    value={receivedQtys[it.id] ?? ''}
-                    onChange={(e) =>
-                      setReceivedQtys((prev) => ({ ...prev, [it.id]: e.target.value }))
-                    }
-                    min={0}
-                    step={1}
-                    required
-                    className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none text-right tabular-nums"
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="flex justify-end gap-3 pt-2">

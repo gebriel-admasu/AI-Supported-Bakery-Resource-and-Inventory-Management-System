@@ -44,7 +44,12 @@ async def list_products(
     is_active: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_role(RoleEnum.OWNER, RoleEnum.PRODUCTION_MANAGER, RoleEnum.STORE_MANAGER)
+        require_role(
+            RoleEnum.OWNER,
+            RoleEnum.FINANCE_MANAGER,
+            RoleEnum.PRODUCTION_MANAGER,
+            RoleEnum.STORE_MANAGER,
+        )
     ),
 ):
     query = db.query(Product)
@@ -61,7 +66,12 @@ async def get_product(
     product_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_role(RoleEnum.OWNER, RoleEnum.PRODUCTION_MANAGER, RoleEnum.STORE_MANAGER)
+        require_role(
+            RoleEnum.OWNER,
+            RoleEnum.FINANCE_MANAGER,
+            RoleEnum.PRODUCTION_MANAGER,
+            RoleEnum.STORE_MANAGER,
+        )
     ),
 ):
     product = db.query(Product).filter(Product.id == product_id).first()

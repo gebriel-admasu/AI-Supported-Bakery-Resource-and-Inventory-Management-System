@@ -15,6 +15,7 @@ import SalesPage from './pages/sales/SalesPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import ForecastingPage from './pages/forecasting/ForecastingPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
+import StoreManagementPage from './pages/admin/StoreManagementPage';
 import AuditLogsPage from './pages/admin/AuditLogsPage';
 
 export const router = createBrowserRouter([
@@ -78,7 +79,7 @@ export const router = createBrowserRouter([
           {
             path: 'wastage',
             element: (
-              <ProtectedRoute allowedRoles={['owner', 'production_manager', 'store_manager']}>
+              <ProtectedRoute allowedRoles={['owner', 'finance_manager', 'production_manager', 'store_manager']}>
                 <WastagePage />
               </ProtectedRoute>
             ),
@@ -86,7 +87,7 @@ export const router = createBrowserRouter([
           {
             path: 'distribution',
             element: (
-              <ProtectedRoute allowedRoles={['owner', 'production_manager', 'store_manager']}>
+              <ProtectedRoute allowedRoles={['owner', 'production_manager', 'store_manager', 'delivery_staff']}>
                 <DistributionPage />
               </ProtectedRoute>
             ),
@@ -94,7 +95,15 @@ export const router = createBrowserRouter([
           {
             path: 'sales',
             element: (
-              <ProtectedRoute allowedRoles={['owner', 'store_manager']}>
+              <ProtectedRoute allowedRoles={['owner', 'finance_manager', 'store_manager']}>
+                <SalesPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: 'sales/:salesDate',
+            element: (
+              <ProtectedRoute allowedRoles={['owner', 'finance_manager', 'store_manager']}>
                 <SalesPage />
               </ProtectedRoute>
             ),
@@ -102,7 +111,7 @@ export const router = createBrowserRouter([
           {
             path: 'reports',
             element: (
-              <ProtectedRoute allowedRoles={['owner']}>
+              <ProtectedRoute allowedRoles={['owner', 'finance_manager']}>
                 <ReportsPage />
               </ProtectedRoute>
             ),
@@ -124,9 +133,17 @@ export const router = createBrowserRouter([
             ),
           },
           {
-            path: 'admin/audit-logs',
+            path: 'admin/stores',
             element: (
               <ProtectedRoute allowedRoles={['admin', 'owner']}>
+                <StoreManagementPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: 'admin/audit-logs',
+            element: (
+              <ProtectedRoute allowedRoles={['admin', 'owner', 'finance_manager']}>
                 <AuditLogsPage />
               </ProtectedRoute>
             ),
