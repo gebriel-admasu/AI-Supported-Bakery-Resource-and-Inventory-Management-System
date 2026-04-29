@@ -22,7 +22,7 @@ async def list_audit_logs(
     action: Optional[str] = None,
     resource: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OWNER)),
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OWNER, RoleEnum.FINANCE_MANAGER)),
 ):
     query = db.query(AuditLog)
     if user_id is not None:

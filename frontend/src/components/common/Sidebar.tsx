@@ -13,6 +13,7 @@ import {
   BarChart3,
   Brain,
   Users,
+  Building2,
   Warehouse,
   LogOut,
   ClipboardList,
@@ -31,7 +32,7 @@ const navItems: NavItem[] = [
     label: 'Dashboard',
     path: '/dashboard',
     icon: <LayoutDashboard size={20} />,
-    roles: ['admin', 'owner', 'production_manager', 'store_manager'],
+    roles: ['admin', 'owner', 'finance_manager', 'production_manager', 'store_manager', 'delivery_staff'],
   },
   {
     label: 'Inventory',
@@ -67,25 +68,25 @@ const navItems: NavItem[] = [
     label: 'Wastage',
     path: '/wastage',
     icon: <Trash2 size={20} />,
-    roles: ['owner', 'production_manager', 'store_manager'],
+    roles: ['owner', 'finance_manager', 'production_manager', 'store_manager'],
   },
   {
     label: 'Distribution',
     path: '/distribution',
     icon: <Truck size={20} />,
-    roles: ['owner', 'production_manager', 'store_manager'],
+    roles: ['owner', 'production_manager', 'store_manager', 'delivery_staff'],
   },
   {
     label: 'Sales',
     path: '/sales',
     icon: <ShoppingCart size={20} />,
-    roles: ['owner', 'store_manager'],
+    roles: ['owner', 'finance_manager', 'store_manager'],
   },
   {
     label: 'Reports',
     path: '/reports',
     icon: <BarChart3 size={20} />,
-    roles: ['owner'],
+    roles: ['owner', 'finance_manager'],
   },
   {
     label: 'Forecasting',
@@ -100,10 +101,16 @@ const navItems: NavItem[] = [
     roles: ['admin'],
   },
   {
+    label: 'Store Management',
+    path: '/admin/stores',
+    icon: <Building2 size={20} />,
+    roles: ['admin', 'owner'],
+  },
+  {
     label: 'Audit Logs',
     path: '/admin/audit-logs',
     icon: <ClipboardList size={20} />,
-    roles: ['admin', 'owner'],
+    roles: ['admin', 'owner', 'finance_manager'],
   },
 ];
 

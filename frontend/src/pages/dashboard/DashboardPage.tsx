@@ -22,7 +22,7 @@ export default function DashboardPage() {
             <StatCard title="Today's Production" value="--" subtitle="batches" color="purple" />
           </>
         )}
-        {(role === 'owner' || role === 'store_manager') && (
+        {(role === 'owner' || role === 'finance_manager' || role === 'store_manager') && (
           <StatCard title="Today's Sales" value="--" subtitle="revenue" color="orange" />
         )}
         {role === 'owner' && (

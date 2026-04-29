@@ -8,11 +8,33 @@ from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.core.constants import RoleEnum
 from app.core.security import hash_password
+from app.models.store import Store
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
 from app.services.audit_service import log_action
 
 router = APIRouter()
+
+
+def _resolve_store_assignment_for_role(
+    role: RoleEnum,
+    store_id: Optional[UUID],
+    db: Session,
+) -> Optional[UUID]:
+    if role != RoleEnum.STORE_MANAGER:
+        return None
+    if not store_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="store_id is required for store_manager role",
+        )
+    store = db.query(Store).filter(Store.id == store_id, Store.is_active == True).first()
+    if not store:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assigned store not found or inactive",
+        )
+    return store_id
 
 
 @router.get("/", response_model=List[UserResponse])
@@ -22,7 +44,9 @@ async def list_users(
     role: Optional[RoleEnum] = None,
     is_active: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OWNER)),
+    current_user: User = Depends(
+        require_role(RoleEnum.ADMIN, RoleEnum.OWNER, RoleEnum.PRODUCTION_MANAGER)
+    ),
 ):
     query = db.query(User)
     if role is not None:
@@ -47,13 +71,14 @@ async def create_user(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username or email already exists",
         )
+    resolved_store_id = _resolve_store_assignment_for_role(user_in.role, user_in.store_id, db)
     user = User(
         username=user_in.username,
         email=user_in.email,
         password_hash=hash_password(user_in.password),
         full_name=user_in.full_name,
         role=user_in.role,
-        store_id=user_in.store_id,
+        store_id=resolved_store_id,
     )
     db.add(user)
     db.commit()
@@ -80,7 +105,9 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 async def get_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OWNER)),
+    current_user: User = Depends(
+        require_role(RoleEnum.ADMIN, RoleEnum.OWNER, RoleEnum.PRODUCTION_MANAGER)
+    ),
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -106,6 +133,21 @@ async def update_user(
     if "password" in update_data:
         update_data["password_hash"] = hash_password(update_data.pop("password"))
         changed_fields.append("password")
+
+    next_role = update_data.get("role", user.role)
+    if "store_id" in update_data:
+        next_store_id = update_data.get("store_id")
+    else:
+        next_store_id = user.store_id
+
+    if next_role == RoleEnum.STORE_MANAGER and not next_store_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="store_id is required for store_manager role",
+        )
+
+    if "role" in update_data or "store_id" in update_data:
+        update_data["store_id"] = _resolve_store_assignment_for_role(next_role, next_store_id, db)
 
     for field, value in update_data.items():
         old_value = getattr(user, field, None)
