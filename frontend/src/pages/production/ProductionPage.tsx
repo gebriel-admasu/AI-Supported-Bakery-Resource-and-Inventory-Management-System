@@ -3,6 +3,7 @@ import {
   productionApi,
   type BatchDetail,
   type CreateBatchPayload,
+  type ProductionStockSummaryItem,
   type UpdateBatchPayload,
 } from '../../api/production';
 import { type RecipeDetail, recipesApi } from '../../api/recipes';
@@ -32,6 +33,7 @@ function formatDate(iso: string): string {
 
 export default function ProductionPage() {
   const [batches, setBatches] = useState<BatchDetail[]>([]);
+  const [stockSummary, setStockSummary] = useState<ProductionStockSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -43,8 +45,12 @@ export default function ProductionPage() {
       setLoading(true);
       setError('');
       const params = statusFilter !== 'all' ? { status: statusFilter } : undefined;
-      const data = await productionApi.listBatches(params);
-      setBatches(data);
+      const [batchData, stockData] = await Promise.all([
+        productionApi.listBatches(params),
+        productionApi.getStockSummary(),
+      ]);
+      setBatches(batchData);
+      setStockSummary(stockData);
     } catch {
       setError('Failed to load production batches');
     } finally {
@@ -130,6 +136,51 @@ export default function ProductionPage() {
             {s === 'all' ? 'All' : STATUS_LABELS[s] ?? s}
           </button>
         ))}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-5">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900">Production Site Stock</h2>
+          <p className="text-sm text-gray-500 mt-1">Remaining = Completed Production - Dispatched Quantity</p>
+        </div>
+        {loading ? (
+          <div className="p-8 text-center text-gray-400">Loading production stock summary...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px]">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Produced</th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Dispatched</th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Remaining</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {stockSummary.map((item) => (
+                  <tr key={item.product_id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm">
+                      <div className="font-medium text-gray-900">{item.product_name ?? 'Unknown Product'}</div>
+                      <div className="text-xs text-gray-500">{item.product_sku ?? 'N/A'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-right text-gray-700 tabular-nums">{item.produced_qty}</td>
+                    <td className="px-6 py-4 text-sm text-right text-gray-700 tabular-nums">{item.dispatched_qty}</td>
+                    <td className={`px-6 py-4 text-sm text-right tabular-nums font-medium ${item.remaining_qty < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                      {item.remaining_qty}
+                    </td>
+                  </tr>
+                ))}
+                {stockSummary.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
+                      No production stock records available yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

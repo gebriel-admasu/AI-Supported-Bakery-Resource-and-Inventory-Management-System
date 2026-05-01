@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date, timezone
 
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Enum as SAEnum, Uuid
+from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Enum as SAEnum, Numeric, Boolean, Uuid
 
 from app.database import Base
 from app.core.constants import WastageReason, WastageSourceType
@@ -21,6 +21,12 @@ class WastageRecord(Base):
     ingredient_id = Column(Uuid, ForeignKey('ingredients.id'), nullable=True)
     date = Column(Date, nullable=False, default=date.today)
     quantity = Column(Integer, nullable=False)
+    unit_price_snapshot = Column(Numeric(12, 2), nullable=True)
+    total_price_snapshot = Column(Numeric(12, 2), nullable=True)
+    unit_cost_snapshot = Column(Numeric(12, 2), nullable=True)
+    total_cost_snapshot = Column(Numeric(12, 2), nullable=True)
+    cost_source = Column(String(50), nullable=True)
+    is_estimated_cost = Column(Boolean, nullable=False, default=False)
     reason = Column(SAEnum(WastageReason, native_enum=False), nullable=False)
     notes = Column(String(500), nullable=True)
     recorded_by = Column(Uuid, ForeignKey('users.id'), nullable=True)
