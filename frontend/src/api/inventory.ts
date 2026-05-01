@@ -23,6 +23,17 @@ export interface StockAlert {
   ingredient_name: string | null;
 }
 
+export interface ExpiryAlert {
+  inventory_stock_id: string;
+  ingredient_id: string;
+  ingredient_name: string;
+  quantity: number;
+  unit: string;
+  expiry_date: string;
+  days_to_expiry: number;
+  status: 'expired' | 'near_expiry';
+}
+
 export interface AddStockPayload {
   ingredient_id: string;
   quantity: number;
@@ -52,6 +63,13 @@ export const inventoryApi = {
 
   listAlerts: async (): Promise<StockAlert[]> => {
     const response = await apiClient.get('/inventory/alerts');
+    return response.data;
+  },
+
+  listExpiryAlerts: async (nearExpiryDays = 7): Promise<ExpiryAlert[]> => {
+    const response = await apiClient.get('/inventory/alerts/expiry', {
+      params: { near_expiry_days: nearExpiryDays },
+    });
     return response.data;
   },
 };

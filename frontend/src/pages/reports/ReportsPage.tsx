@@ -5,7 +5,10 @@ import { storesApi } from '../../api/stores';
 import type { Store } from '../../types';
 
 function toIsoDate(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function money(value: number): string {
@@ -37,6 +40,7 @@ export default function ReportsPage() {
     date_to: todayIso,
     store_id: 'all',
     product_id: 'all',
+    finalized_only: true,
   });
 
   const buildParams = () => ({
@@ -44,6 +48,7 @@ export default function ReportsPage() {
     date_to: filters.date_to,
     store_id: filters.store_id === 'all' ? undefined : filters.store_id,
     product_id: filters.product_id === 'all' ? undefined : filters.product_id,
+    finalized_only: filters.finalized_only,
   });
 
   const loadLookups = async () => {
@@ -63,6 +68,8 @@ export default function ReportsPage() {
         date_from: params.date_from,
         date_to: params.date_to,
         store_id: params.store_id,
+        product_id: params.product_id,
+        finalized_only: params.finalized_only,
         limit: 100,
       }),
       financeApi.getPnlTrend(params),
@@ -125,7 +132,7 @@ export default function ReportsPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-5">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Filters</h2>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <input
             type="date"
             value={filters.date_from}
@@ -169,24 +176,51 @@ export default function ReportsPage() {
           >
             Apply
           </button>
+          <label className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={filters.finalized_only}
+              onChange={(e) => setFilters((prev) => ({ ...prev, finalized_only: e.target.checked }))}
+            />
+            Finalized Sales Only
+          </label>
         </div>
       </div>
 
-      {summary?.missing_cost_rows ? (
+      {summary && (summary.missing_cost_rows > 0 || summary.estimated_cost_rows > 0) ? (
         <div className="mb-5 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg">
-          {summary.missing_cost_rows} row(s) use fallback/zero cost because recipe or ingredient cost is missing. Update recipe
-          and ingredient costs for more accurate profit numbers.
+          {summary.missing_cost_rows} row(s) have missing/zero costs and {summary.estimated_cost_rows} row(s) used estimated
+          fallback cost logic. Snapshot-complete historical rows provide the most reliable margin figures.
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
         <MetricCard label="Revenue" value={summary ? money(summary.total_revenue) : '—'} tone="blue" />
         <MetricCard label="COGS" value={summary ? money(summary.total_cogs) : '—'} tone="purple" />
         <MetricCard label="Gross Profit" value={summary ? money(summary.gross_profit) : '—'} tone="green" />
         <MetricCard label="Gross Margin %" value={summary ? percent(summary.gross_margin_pct) : '—'} tone="indigo" />
-        <MetricCard label="Wastage Cost" value={summary ? money(summary.total_wastage_cost) : '—'} tone="amber" />
+        {filters.store_id === 'all' ? (
+          <>
+            <MetricCard label="Store Wastage Cost" value={summary ? money(summary.store_wastage_cost) : '—'} tone="blue" />
+            <MetricCard label="Ingredient Wastage Cost" value={summary ? money(summary.ingredient_wastage_cost) : '—'} tone="indigo" />
+            <MetricCard
+              label="Product Wastage During Production"
+              value={summary ? money(summary.production_product_wastage_cost) : '—'}
+              tone="purple"
+            />
+            <MetricCard label="Total Wastage Cost" value={summary ? money(summary.total_wastage_cost) : '—'} tone="amber" />
+          </>
+        ) : (
+          <MetricCard label="Store Wastage Cost" value={summary ? money(summary.total_wastage_cost) : '—'} tone="amber" />
+        )}
         <MetricCard label="Estimated Net Profit" value={summary ? money(summary.estimated_net_profit) : '—'} tone="teal" />
       </div>
+
+      {filters.store_id !== 'all' ? (
+        <p className="text-xs text-gray-500 mb-5">
+          Store filter is active. Wastage and net profit are calculated for the selected store only.
+        </p>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-5">
         <div className="px-5 py-4 border-b border-gray-100">
@@ -212,7 +246,7 @@ export default function ReportsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {margins.map((item) => (
-                  <tr key={item.product_id} className={item.missing_cost ? 'bg-amber-50/40' : ''}>
+                  <tr key={item.product_id} className={item.missing_cost ? 'bg-amber-50/40' : item.estimated_cost ? 'bg-blue-50/40' : ''}>
                     <td className="px-4 py-3 text-sm">
                       <div className="font-medium text-gray-900">{item.product_name}</div>
                       <div className="text-xs text-gray-500">{item.sku}</div>

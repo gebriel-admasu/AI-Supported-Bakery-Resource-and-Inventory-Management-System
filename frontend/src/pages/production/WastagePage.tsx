@@ -23,6 +23,9 @@ const REASON_STYLES: Record<string, string> = {
   other: 'bg-gray-100 text-gray-600',
 };
 
+const WASTAGE_PAGE_SIZE = 100;
+const WASTAGE_MAX_PAGES = 20;
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
@@ -31,6 +34,24 @@ function formatDate(iso: string): string {
 function reasonLabel(value: string): string {
   const found = REASON_OPTIONS.find((r) => r.value === value);
   return found?.label ?? value;
+}
+
+function money(value: number | null | undefined): string {
+  return `ETB ${Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function qtyWithUnit(record: WastageDetail): string {
+  const unit =
+    record.source_type === 'production'
+      ? (record.ingredient_id ? record.ingredient_unit : record.product_unit)
+      : record.product_unit;
+  return `${record.quantity}${unit ? ` ${unit}` : ''}`;
+}
+
+function itemLabel(record: WastageDetail): string {
+  if (record.ingredient_id) return record.ingredient_name ?? '—';
+  if (record.product_id) return record.product_name ?? '—';
+  return '—';
 }
 
 export default function WastagePage() {
@@ -43,9 +64,10 @@ export default function WastagePage() {
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [ownerView, setOwnerView] = useState<string>('all');
+  const canUseAdvancedView = role === 'owner' || role === 'finance_manager';
 
   const filteredRecords = records.filter((r) => {
-    if (role !== 'owner') return true;
+    if (!canUseAdvancedView) return true;
     if (ownerView === 'all') return true;
     if (ownerView === 'production_products') {
       return r.source_type === 'production' && r.product_id != null;
@@ -81,8 +103,25 @@ export default function WastagePage() {
     try {
       setLoading(true);
       setError('');
-      const tasks: Promise<unknown>[] = [wastageApi.list()];
-      if (role === 'owner') tasks.push(storesApi.list({ is_active: true }));
+      const loadAllWastage = async (): Promise<WastageDetail[]> => {
+        let page = 0;
+        let skip = 0;
+        const all: WastageDetail[] = [];
+        while (page < WASTAGE_MAX_PAGES) {
+          const chunk = await wastageApi.list({
+            skip,
+            limit: WASTAGE_PAGE_SIZE,
+          });
+          all.push(...chunk);
+          if (chunk.length < WASTAGE_PAGE_SIZE) break;
+          page += 1;
+          skip += WASTAGE_PAGE_SIZE;
+        }
+        return all;
+      };
+
+      const tasks: Promise<unknown>[] = [loadAllWastage()];
+      if (canUseAdvancedView) tasks.push(storesApi.list({ is_active: true }));
       const [data, storeData] = await Promise.all(tasks) as [WastageDetail[], Store[]?];
       setRecords(data);
       if (storeData) {
@@ -97,7 +136,7 @@ export default function WastagePage() {
 
   useEffect(() => {
     void fetchRecords();
-  }, []);
+  }, [canUseAdvancedView]);
 
   const handleSaved = () => {
     setShowModal(false);
@@ -125,7 +164,7 @@ export default function WastagePage() {
         )}
       </div>
 
-      {role === 'owner' && (
+      {canUseAdvancedView && (
         <div className="mb-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
@@ -133,7 +172,7 @@ export default function WastagePage() {
               <p className="text-xl font-bold text-blue-900 tabular-nums mt-1">{ownerSummary.storeWastageQty}</p>
             </div>
             <div className="bg-purple-50 border border-purple-100 rounded-lg px-4 py-3">
-              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Production Products</p>
+              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">Product Wastage During Production</p>
               <p className="text-xl font-bold text-purple-900 tabular-nums mt-1">{ownerSummary.productionProductQty}</p>
             </div>
             <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
@@ -180,7 +219,7 @@ export default function WastagePage() {
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              Production Product Wastage
+              Product Wastage During Production
             </button>
             <button
               type="button"
@@ -220,6 +259,7 @@ export default function WastagePage() {
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Item</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Recorded By</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Price</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reason</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>
                 </tr>
@@ -237,10 +277,22 @@ export default function WastagePage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">{r.source_type === 'production' ? 'Production Inventory' : (r.store_name ?? '—')}</td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {r.source_type === 'production' ? (r.ingredient_name ?? '—') : (r.product_name ?? '—')}
+                      {itemLabel(r)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-700">{r.recorded_by_name ?? r.recorded_by ?? '—'}</td>
-                    <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{r.quantity}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{qtyWithUnit(r)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">
+                      {r.total_price != null ? (
+                        <>
+                          <div>{money(r.total_price)}</div>
+                          {r.unit_price != null && (
+                            <div className="text-xs text-gray-500">{money(r.unit_price)} / unit</div>
+                          )}
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${REASON_STYLES[r.reason] ?? 'bg-gray-100 text-gray-600'}`}>
                         {reasonLabel(r.reason)}
@@ -251,7 +303,7 @@ export default function WastagePage() {
                 ))}
                 {filteredRecords.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
+                    <td colSpan={9} className="px-6 py-12 text-center text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <Trash2 className="text-gray-300" size={40} strokeWidth={1.5} />
                         <p>No wastage records yet.</p>
@@ -400,7 +452,7 @@ function WastageFormModal({
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
                   >
                     <option value="store">Store Wastage (Product)</option>
-                    <option value="production">Production Wastage (Ingredient)</option>
+                    <option value="production">Production Wastage</option>
                   </select>
                 </div>
               )}
@@ -450,7 +502,7 @@ function WastageFormModal({
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-sm"
                     >
                       <option value="ingredient">Ingredient Wastage (raw material)</option>
-                      <option value="product">Product Wastage (finished product)</option>
+                      <option value="product">Product Wastage During Production</option>
                     </select>
                   </div>
                   {productionItemType === 'ingredient' ? (

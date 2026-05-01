@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pydantic import BaseModel
 
@@ -33,3 +33,14 @@ class StockAlertResponse(BaseModel):
     timestamp: datetime
     ingredient_name: Optional[str] = None
     model_config = {"from_attributes": True}
+
+
+class ExpiryAlertResponse(BaseModel):
+    inventory_stock_id: UUID
+    ingredient_id: UUID
+    ingredient_name: str
+    quantity: Decimal
+    unit: str
+    expiry_date: date
+    days_to_expiry: int
+    status: str
