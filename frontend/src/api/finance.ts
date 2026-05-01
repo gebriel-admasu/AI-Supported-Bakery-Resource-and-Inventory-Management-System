@@ -7,11 +7,16 @@ export interface FinanceSummary {
   total_cogs: number;
   gross_profit: number;
   gross_margin_pct: number;
+  store_wastage_cost: number;
+  ingredient_wastage_cost: number;
+  production_product_wastage_cost: number;
+  production_wastage_cost: number;
   total_wastage_cost: number;
   estimated_net_profit: number;
   total_units_sold: number;
   total_wastage_units: number;
   missing_cost_rows: number;
+  estimated_cost_rows: number;
 }
 
 export interface ProductMarginItem {
@@ -26,6 +31,7 @@ export interface ProductMarginItem {
   avg_selling_price: number;
   unit_cogs: number;
   missing_cost: boolean;
+  estimated_cost: boolean;
 }
 
 export interface ProductMarginResponse {
@@ -39,6 +45,10 @@ export interface PnlTrendPoint {
   revenue: number;
   cogs: number;
   gross_profit: number;
+  store_wastage_cost: number;
+  ingredient_wastage_cost: number;
+  production_product_wastage_cost: number;
+  production_wastage_cost: number;
   wastage_cost: number;
   estimated_net_profit: number;
 }
@@ -50,6 +60,10 @@ export interface PnlTrendResponse {
   total_revenue: number;
   total_cogs: number;
   gross_profit: number;
+  total_store_wastage_cost: number;
+  total_ingredient_wastage_cost: number;
+  total_production_product_wastage_cost: number;
+  total_production_wastage_cost: number;
   total_wastage_cost: number;
   estimated_net_profit: number;
 }
@@ -59,6 +73,7 @@ export interface FinanceFilters {
   date_to?: string;
   store_id?: string;
   product_id?: string;
+  finalized_only?: boolean;
 }
 
 export const financeApi = {
@@ -68,7 +83,7 @@ export const financeApi = {
   },
 
   getProductMargins: async (
-    params?: Omit<FinanceFilters, 'product_id'> & { limit?: number }
+    params?: FinanceFilters & { limit?: number }
   ): Promise<ProductMarginResponse> => {
     const response = await apiClient.get('/finance/product-margins', { params });
     return response.data;

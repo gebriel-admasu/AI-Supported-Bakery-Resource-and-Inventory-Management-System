@@ -5,6 +5,7 @@ import {
   inventoryApi,
   type InventoryStock,
   type StockAlert,
+  type ExpiryAlert,
   type AddStockPayload,
   type UpdateStockPayload,
 } from '../../api/inventory';
@@ -34,6 +35,7 @@ function stockStatus(
 export default function InventoryPage() {
   const [stocks, setStocks] = useState<InventoryStock[]>([]);
   const [alerts, setAlerts] = useState<StockAlert[]>([]);
+  const [expiryAlerts, setExpiryAlerts] = useState<ExpiryAlert[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -77,13 +79,15 @@ export default function InventoryPage() {
     try {
       setLoading(true);
       setError('');
-      const [stockData, alertData, ingData] = await Promise.all([
+      const [stockData, alertData, expiryAlertData, ingData] = await Promise.all([
         inventoryApi.listStocks(),
         inventoryApi.listAlerts(),
+        inventoryApi.listExpiryAlerts(),
         ingredientsApi.list({ is_active: true }),
       ]);
       setStocks(stockData);
       setAlerts(alertData);
+      setExpiryAlerts(expiryAlertData);
       setIngredients(ingData);
     } catch {
       setError('Failed to load inventory data');
@@ -136,6 +140,12 @@ export default function InventoryPage() {
           </button>
         </div>
       )}
+
+      {!loading && (alerts.length > 0 || expiryAlerts.length > 0) ? (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Attention required: {alerts.length} low-stock alert(s) and {expiryAlerts.length} expiry alert(s).
+        </div>
+      ) : null}
 
       <section className="mb-8">
         <div className="flex items-center gap-2 mb-3">
@@ -260,6 +270,55 @@ export default function InventoryPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle className="text-red-600" size={22} strokeWidth={2} />
+          <h2 className="text-lg font-semibold text-gray-900">Expiry Alerts</h2>
+        </div>
+
+        <div className="rounded-xl border-2 border-red-200 bg-red-50/50 shadow-sm overflow-hidden">
+          {loading ? (
+            <div className="p-8 text-center text-red-800/70">Loading expiry alerts...</div>
+          ) : expiryAlerts.length === 0 ? (
+            <div className="px-6 py-10 text-center text-red-900/60 text-sm">
+              No active expiry alerts in production inventory.
+            </div>
+          ) : (
+            <ul className="divide-y divide-red-200/80">
+              {expiryAlerts.map((a) => {
+                const isExpired = a.status === 'expired';
+                const timingText = isExpired
+                  ? `Expired ${Math.abs(a.days_to_expiry)} day(s) ago`
+                  : `Expires in ${a.days_to_expiry} day(s)`;
+                return (
+                  <li
+                    key={`${a.inventory_stock_id}-${a.ingredient_id}`}
+                    className="flex flex-col sm:flex-row sm:items-center gap-3 px-5 py-4 bg-white/60"
+                  >
+                    <AlertTriangle
+                      className={`shrink-0 sm:mt-0.5 ${isExpired ? 'text-red-600' : 'text-amber-600'}`}
+                      size={22}
+                      strokeWidth={2}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900">{a.ingredient_name}</p>
+                      <p className={`text-sm mt-0.5 ${isExpired ? 'text-red-900/90' : 'text-amber-900/90'}`}>
+                        {timingText}
+                        {' · '}
+                        Expiry date: {new Date(a.expiry_date).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Current stock: <span className="tabular-nums font-medium">{a.quantity}</span> {a.unit}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </section>
