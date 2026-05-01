@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { inventoryApi } from '../../api/inventory';
 import { useAuth } from '../../context/AuthContext';
 import type { UserRole } from '../../types';
 import {
@@ -116,6 +118,42 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const { role, user, logout } = useAuth();
+  const [inventoryAlertCount, setInventoryAlertCount] = useState(0);
+  const canViewInventoryAlerts = role === 'owner' || role === 'production_manager';
+
+  useEffect(() => {
+    if (!canViewInventoryAlerts) {
+      setInventoryAlertCount(0);
+      return;
+    }
+
+    let mounted = true;
+    const loadAlerts = async () => {
+      try {
+        const [stockAlerts, expiryAlerts] = await Promise.all([
+          inventoryApi.listAlerts(),
+          inventoryApi.listExpiryAlerts(),
+        ]);
+        if (mounted) {
+          setInventoryAlertCount(stockAlerts.length + expiryAlerts.length);
+        }
+      } catch {
+        if (mounted) {
+          setInventoryAlertCount(0);
+        }
+      }
+    };
+
+    void loadAlerts();
+    const pollId = window.setInterval(() => {
+      void loadAlerts();
+    }, 60_000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(pollId);
+    };
+  }, [canViewInventoryAlerts]);
 
   const visibleItems = navItems.filter(
     (item) => role && item.roles.includes(role)
@@ -144,6 +182,11 @@ export default function Sidebar() {
           >
             {item.icon}
             {item.label}
+            {item.path === '/inventory' && canViewInventoryAlerts && inventoryAlertCount > 0 ? (
+              <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {inventoryAlertCount > 99 ? '99+' : inventoryAlertCount}
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>
