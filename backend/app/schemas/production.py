@@ -34,3 +34,12 @@ class BatchResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ProductionStockSummaryItem(BaseModel):
+    product_id: UUID
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    produced_qty: int
+    dispatched_qty: int
+    remaining_qty: int

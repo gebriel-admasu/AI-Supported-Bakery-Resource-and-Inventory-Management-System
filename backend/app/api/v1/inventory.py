@@ -1,10 +1,11 @@
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,6 +16,7 @@ from app.models.ingredient import Ingredient
 from app.models.product import Product
 from app.models.user import User
 from app.schemas.inventory import (
+    ExpiryAlertResponse,
     InventoryStockResponse,
     StockAlertResponse,
     StockUpdatePayload,
@@ -243,6 +245,69 @@ async def list_active_alerts(
                 status=alert.status.value,
                 timestamp=alert.timestamp,
                 ingredient_name=ingredient_name,
+            )
+        )
+    return result
+
+
+@router.get("/alerts/expiry", response_model=List[ExpiryAlertResponse])
+async def list_expiry_alerts(
+    near_expiry_days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role(RoleEnum.OWNER, RoleEnum.PRODUCTION_MANAGER)
+    ),
+):
+    today = date.today()
+    near_cutoff = today + timedelta(days=near_expiry_days)
+    inv = get_or_create_production_inventory(db)
+
+    rows = (
+        db.query(
+            Ingredient.id.label("ingredient_id"),
+            Ingredient.name.label("ingredient_name"),
+            Ingredient.unit.label("ingredient_unit"),
+            Ingredient.expiry_date.label("ingredient_expiry_date"),
+            func.coalesce(func.sum(InventoryStock.quantity), 0).label("total_quantity"),
+            func.max(InventoryStock.id).label("inventory_stock_id"),
+        )
+        .outerjoin(
+            InventoryStock,
+            (InventoryStock.ingredient_id == Ingredient.id)
+            & (InventoryStock.inventory_id == inv.id),
+        )
+        .filter(
+            Ingredient.is_active == True,
+            Ingredient.expiry_date.isnot(None),
+            Ingredient.expiry_date <= near_cutoff,
+        )
+        .group_by(
+            Ingredient.id,
+            Ingredient.name,
+            Ingredient.unit,
+            Ingredient.expiry_date,
+        )
+        .order_by(Ingredient.expiry_date.asc(), Ingredient.name.asc())
+        .all()
+    )
+
+    result: List[ExpiryAlertResponse] = []
+    for row in rows:
+        if row.ingredient_expiry_date is None:
+            continue
+        days_to_expiry = (row.ingredient_expiry_date - today).days
+        status_value = "expired" if days_to_expiry < 0 else "near_expiry"
+        inventory_stock_id = row.inventory_stock_id or row.ingredient_id
+        result.append(
+            ExpiryAlertResponse(
+                inventory_stock_id=inventory_stock_id,
+                ingredient_id=row.ingredient_id,
+                ingredient_name=row.ingredient_name,
+                quantity=Decimal(str(row.total_quantity or 0)),
+                unit=row.ingredient_unit,
+                expiry_date=row.ingredient_expiry_date,
+                days_to_expiry=days_to_expiry,
+                status=status_value,
             )
         )
     return result

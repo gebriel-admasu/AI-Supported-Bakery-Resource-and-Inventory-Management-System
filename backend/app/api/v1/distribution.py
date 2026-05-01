@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -8,13 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.api.deps import require_role
-from app.core.constants import BatchStatus, DistributionStatus, DiscrepancyStatus, RoleEnum, WastageReason
+from app.core.constants import BatchStatus, DistributionStatus, DiscrepancyStatus, RoleEnum, WastageReason, WastageSourceType
 from app.models.distribution import Distribution, DistributionItem
 from app.models.production import ProductionBatch
 from app.models.product import Product
 from app.models.store import Store
 from app.models.user import User
 from app.models.wastage import WastageRecord
+from app.services.recipe_costing import resolve_recipe_unit_cost
 from app.schemas.distribution import (
     DistributionCreate,
     DistributionDiscrepancyDecision,
@@ -24,6 +26,33 @@ from app.schemas.distribution import (
 )
 
 router = APIRouter()
+
+
+def _to_decimal(value: object) -> Decimal:
+    if value is None:
+        return Decimal("0")
+    return Decimal(str(value))
+
+
+def _resolve_product_unit_cost(db: Session, product_id: UUID) -> tuple[Decimal, str, bool]:
+    recipe_id_row = db.query(Product.recipe_id).filter(Product.id == product_id).first()
+    if not recipe_id_row:
+        return Decimal("0"), "fallback_zero", True
+    unit_cost = resolve_recipe_unit_cost(db, recipe_id_row[0])
+    if unit_cost <= 0:
+        return Decimal("0"), "fallback_zero", True
+    return unit_cost, "product_recipe_cost", False
+
+
+def _resolve_product_unit_price(db: Session, product_id: UUID) -> Decimal:
+    row = (
+        db.query(Product.sale_price)
+        .filter(Product.id == product_id)
+        .first()
+    )
+    if not row or row[0] is None:
+        return Decimal("0")
+    return _to_decimal(row[0])
 
 
 def _dist_response(db: Session, dist: Distribution) -> dict:
@@ -472,12 +501,21 @@ async def approve_discrepancy(
             continue
         if _is_count_error_reason(item.discrepancy_reason):
             continue
+        unit_price_snapshot = _resolve_product_unit_price(db, item.product_id)
+        unit_cost_snapshot, cost_source, is_estimated_cost = _resolve_product_unit_cost(db, item.product_id)
         db.add(
             WastageRecord(
+                source_type=WastageSourceType.STORE,
                 store_id=dist.store_id,
                 product_id=item.product_id,
                 date=dist.dispatch_date,
                 quantity=item.discrepancy_qty,
+                unit_price_snapshot=unit_price_snapshot,
+                total_price_snapshot=unit_price_snapshot * Decimal(item.discrepancy_qty),
+                unit_cost_snapshot=unit_cost_snapshot,
+                total_cost_snapshot=unit_cost_snapshot * Decimal(item.discrepancy_qty),
+                cost_source=cost_source,
+                is_estimated_cost=is_estimated_cost,
                 reason=_map_discrepancy_reason(item.discrepancy_reason),
                 notes=item.discrepancy_note or f"Auto-created from distribution discrepancy {dist.id}",
                 recorded_by=current_user.id,
