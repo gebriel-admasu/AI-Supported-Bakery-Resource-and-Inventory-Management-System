@@ -16,6 +16,7 @@ from app.models.store import Store
 from app.models.user import User
 from app.models.wastage import WastageRecord
 from app.models.distribution import Distribution, DistributionItem
+from app.services.recipe_costing import resolve_recipe_unit_cost
 from app.core.constants import DistributionStatus
 from app.schemas.sales import (
     SalesClosePayload,
@@ -27,6 +28,45 @@ from app.schemas.sales import (
 
 router = APIRouter()
 AUTO_WASTAGE_NOTE_PREFIX = "Auto-created from sales close variance for record "
+
+
+def _to_decimal(value: object) -> Decimal:
+    if value is None:
+        return Decimal("0")
+    return Decimal(str(value))
+
+
+def _resolve_product_cost_snapshots(db: Session, product_id: UUID) -> tuple[Decimal, Decimal]:
+    product = db.query(Product).filter(Product.id == product_id).first()
+    sale_price_snapshot = _to_decimal(product.sale_price if product else 0)
+
+    unit_cogs_snapshot = Decimal("0")
+    if product and product.recipe_id:
+        unit_cogs_snapshot = resolve_recipe_unit_cost(db, product.recipe_id)
+
+    return sale_price_snapshot, unit_cogs_snapshot
+
+
+def _ensure_record_cost_snapshots(db: Session, record: SalesRecord) -> tuple[Decimal, Decimal]:
+    snapshot_sale_price = _to_decimal(record.sale_price_snapshot)
+    snapshot_unit_cogs = _to_decimal(record.unit_cogs_snapshot)
+
+    resolved_sale_price, resolved_unit_cogs = _resolve_product_cost_snapshots(db, record.product_id)
+    if record.sale_price_snapshot is None and resolved_sale_price > 0:
+        record.sale_price_snapshot = resolved_sale_price
+        snapshot_sale_price = resolved_sale_price
+    if (record.unit_cogs_snapshot is None or snapshot_unit_cogs <= 0) and resolved_unit_cogs > 0:
+        record.unit_cogs_snapshot = resolved_unit_cogs
+        snapshot_unit_cogs = resolved_unit_cogs
+
+    return snapshot_sale_price, snapshot_unit_cogs
+
+
+def _refresh_record_financial_totals(db: Session, record: SalesRecord) -> None:
+    sale_price_snapshot, unit_cogs_snapshot = _ensure_record_cost_snapshots(db, record)
+    sold_qty = int(record.quantity_sold or 0)
+    record.total_amount = sale_price_snapshot * sold_qty
+    record.cogs_amount = unit_cogs_snapshot * sold_qty
 
 
 def _resolve_store_scope(current_user: User, requested_store_id: Optional[UUID]) -> UUID:
@@ -93,11 +133,16 @@ def _resolve_opening_stock_for_create(
     requested_opening_stock: int,
     previous_record: Optional[SalesRecord],
 ) -> int:
+    if not previous_record:
+        return 0
+
+    expected_opening = max(int(previous_record.closing_stock or 0), 0)
+    if expected_opening == 0:
+        return 0
+
     if current_user.role != RoleEnum.STORE_MANAGER:
         return requested_opening_stock
-    if not previous_record:
-        return requested_opening_stock
-    expected_opening = previous_record.closing_stock
+
     if requested_opening_stock != expected_opening:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -216,6 +261,22 @@ def _sync_auto_wastage(
     enabled: bool,
 ) -> None:
     rows = _auto_wastage_records(db, record)
+    snapshot_was_missing = record.unit_cogs_snapshot is None
+    sale_price_snapshot, unit_cogs_snapshot = _ensure_record_cost_snapshots(db, record)
+    cost_source = "sales_unit_cogs_snapshot"
+    is_estimated_cost = False
+    if snapshot_was_missing:
+        is_estimated_cost = True
+        cost_source = "product_recipe_cost_fallback"
+    if unit_cogs_snapshot <= 0:
+        _, fallback_unit_cogs = _resolve_product_cost_snapshots(db, record.product_id)
+        if fallback_unit_cogs > 0:
+            unit_cogs_snapshot = fallback_unit_cogs
+            cost_source = "product_recipe_cost_fallback"
+            is_estimated_cost = True
+        else:
+            cost_source = "fallback_zero"
+            is_estimated_cost = True
 
     if (not enabled) or wastage_qty <= 0:
         for row in rows:
@@ -228,6 +289,12 @@ def _sync_auto_wastage(
         primary.quantity = wastage_qty
         primary.notes = note
         primary.recorded_by = recorded_by
+        primary.unit_price_snapshot = sale_price_snapshot
+        primary.total_price_snapshot = sale_price_snapshot * Decimal(wastage_qty)
+        primary.unit_cost_snapshot = unit_cogs_snapshot
+        primary.total_cost_snapshot = unit_cogs_snapshot * Decimal(wastage_qty)
+        primary.cost_source = cost_source
+        primary.is_estimated_cost = is_estimated_cost
         for extra in rows[1:]:
             db.delete(extra)
         return
@@ -239,6 +306,12 @@ def _sync_auto_wastage(
             product_id=record.product_id,
             date=record.date,
             quantity=wastage_qty,
+            unit_price_snapshot=sale_price_snapshot,
+            total_price_snapshot=sale_price_snapshot * Decimal(wastage_qty),
+            unit_cost_snapshot=unit_cogs_snapshot,
+            total_cost_snapshot=unit_cogs_snapshot * Decimal(wastage_qty),
+            cost_source=cost_source,
+            is_estimated_cost=is_estimated_cost,
             reason=WastageReason.OTHER,
             notes=note,
             recorded_by=recorded_by,
@@ -301,6 +374,10 @@ async def open_sales_day(
     product = db.query(Product).filter(Product.id == body.product_id, Product.is_active == True).first()
     if not product:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active product not found")
+    snapshot_sale_price = _to_decimal(product.sale_price)
+    snapshot_unit_cogs = Decimal("0")
+    if product.recipe_id:
+        snapshot_unit_cogs = resolve_recipe_unit_cost(db, product.recipe_id)
     previous_record = _latest_previous_sales_record(
         db=db,
         store_id=resolved_store_id,
@@ -324,6 +401,10 @@ async def open_sales_day(
             existing.is_closed = False
             existing.closed_at = None
             existing.recorded_by = current_user.id
+            if existing.sale_price_snapshot is None:
+                existing.sale_price_snapshot = snapshot_sale_price
+            if existing.unit_cogs_snapshot is None:
+                existing.unit_cogs_snapshot = snapshot_unit_cogs
             _sync_auto_wastage(
                 db=db,
                 record=existing,
@@ -334,6 +415,7 @@ async def open_sales_day(
             if existing.quantity_sold == 0:
                 existing.opening_stock = opening_stock_to_use
                 existing.total_amount = Decimal("0")
+                existing.cogs_amount = Decimal("0")
             manual_wastage = _manual_store_wastage_qty(db, existing)
             existing.wastage_qty = manual_wastage
             existing_today_received = _today_received_qty(
@@ -342,6 +424,7 @@ async def open_sales_day(
             existing.closing_stock = max(
                 0, existing.opening_stock + existing_today_received - existing.quantity_sold - existing.wastage_qty
             )
+            _refresh_record_financial_totals(db, existing)
             if body.notes is not None:
                 existing.notes = body.notes.strip() if body.notes else None
             db.commit()
@@ -360,6 +443,9 @@ async def open_sales_day(
         closing_stock=opening_stock_to_use,
         wastage_qty=0,
         total_amount=Decimal("0"),
+        sale_price_snapshot=snapshot_sale_price,
+        unit_cogs_snapshot=snapshot_unit_cogs,
+        cogs_amount=Decimal("0"),
         is_closed=False,
         notes=body.notes.strip() if body.notes else None,
         recorded_by=current_user.id,
@@ -389,6 +475,7 @@ async def reopen_sales_day(
     record.wastage_qty = manual_wastage
     today_received = _today_received_qty(db, record.store_id, record.product_id, record.date)
     record.closing_stock = max(0, record.opening_stock + today_received - record.quantity_sold - record.wastage_qty)
+    _refresh_record_financial_totals(db, record)
     record.recorded_by = current_user.id
     _sync_auto_wastage(
         db=db,
@@ -434,9 +521,6 @@ async def update_sales_record(
             detail=f"Sold quantity cannot be greater than total available product ({total_product_qty})",
         )
 
-    product = db.query(Product).filter(Product.id == record.product_id).first()
-    sale_price = Decimal(str(product.sale_price if product else 0))
-    expected_closing = total_product_qty - quantity_sold - (record.wastage_qty if record.is_closed else 0)
     if not record.is_closed:
         manual_wastage = _manual_store_wastage_qty(db, record)
         closing_stock = total_product_qty - quantity_sold - manual_wastage
@@ -452,7 +536,7 @@ async def update_sales_record(
     else:
         residual_wastage = 0
         record.wastage_qty = _manual_store_wastage_qty(db, record)
-    record.total_amount = sale_price * quantity_sold
+    _refresh_record_financial_totals(db, record)
     if body.notes is not None:
         record.notes = body.notes.strip() if body.notes else None
     record.recorded_by = current_user.id
@@ -494,11 +578,9 @@ async def record_sale(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Insufficient stock to sell. Available {available_before_sale}",
         )
-    product = db.query(Product).filter(Product.id == record.product_id).first()
-    sale_price = Decimal(str(product.sale_price if product else 0))
     record.quantity_sold += body.quantity_sold
     record.closing_stock = max(0, total_product_qty - record.quantity_sold - manual_wastage)
-    record.total_amount = Decimal(str(record.total_amount or 0)) + (sale_price * body.quantity_sold)
+    _refresh_record_financial_totals(db, record)
     if body.notes:
         record.notes = body.notes.strip()
     record.recorded_by = current_user.id
@@ -536,6 +618,7 @@ async def close_sales_day(
     if body.notes:
         record.notes = body.notes.strip()
     record.recorded_by = current_user.id
+    _refresh_record_financial_totals(db, record)
     _sync_auto_wastage(
         db=db,
         record=record,

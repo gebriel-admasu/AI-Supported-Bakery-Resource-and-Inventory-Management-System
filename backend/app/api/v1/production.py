@@ -1,22 +1,138 @@
 from decimal import Decimal
-from typing import List, Optional
+from datetime import date
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.api.deps import require_role
-from app.core.constants import BatchStatus, RoleEnum, AlertStatus
+from app.core.constants import AlertStatus, BatchStatus, RoleEnum, WastageReason, WastageSourceType
 from app.models.production import ProductionBatch
 from app.models.recipe import Recipe, RecipeIngredient
 from app.models.ingredient import Ingredient
 from app.models.product import Product
+from app.models.distribution import DistributionItem
 from app.models.inventory import Inventory, InventoryStock, StockAlert
 from app.models.user import User
-from app.schemas.production import BatchCreate, BatchUpdate, BatchResponse
+from app.models.wastage import WastageRecord
+from app.services.recipe_costing import resolve_recipe_unit_cost
+from app.schemas.production import (
+    BatchCreate,
+    BatchUpdate,
+    BatchResponse,
+    ProductionStockSummaryItem,
+)
 
 router = APIRouter()
+
+
+def _to_decimal(value: object) -> Decimal:
+    if value is None:
+        return Decimal("0")
+    return Decimal(str(value))
+
+
+def _resolve_product_wastage_unit_cost(db: Session, product_id: UUID) -> tuple[Decimal, str, bool]:
+    recipe_id_row = db.query(Product.recipe_id).filter(Product.id == product_id).first()
+    if not recipe_id_row:
+        return Decimal("0"), "fallback_zero", True
+    unit_cost = resolve_recipe_unit_cost(db, recipe_id_row[0])
+    if unit_cost <= 0:
+        return Decimal("0"), "fallback_zero", True
+    return unit_cost, "product_recipe_cost", False
+
+
+def _resolve_product_wastage_unit_price(db: Session, product_id: UUID) -> Decimal:
+    row = (
+        db.query(Product.sale_price)
+        .filter(Product.id == product_id)
+        .first()
+    )
+    if not row or row[0] is None:
+        return Decimal("0")
+    return _to_decimal(row[0])
+
+
+def _sync_production_product_wastage(
+    db: Session,
+    batch: ProductionBatch,
+    recorded_by: Optional[UUID],
+) -> bool:
+    waste_qty = int(batch.waste_qty or 0)
+    if waste_qty <= 0:
+        return False
+
+    auto_note = f"Auto-created from production batch {batch.id}"
+    unit_price_snapshot = _resolve_product_wastage_unit_price(db, batch.product_id)
+    unit_cost_snapshot, cost_source, is_estimated_cost = _resolve_product_wastage_unit_cost(
+        db, batch.product_id
+    )
+    total_price_snapshot = unit_price_snapshot * Decimal(waste_qty)
+    total_cost_snapshot = unit_cost_snapshot * Decimal(waste_qty)
+
+    existing = (
+        db.query(WastageRecord)
+        .filter(
+            WastageRecord.source_type == WastageSourceType.PRODUCTION,
+            WastageRecord.product_id == batch.product_id,
+            WastageRecord.ingredient_id.is_(None),
+            WastageRecord.date == batch.production_date,
+            WastageRecord.reason == WastageReason.PRODUCTION_LOSS,
+            WastageRecord.notes == auto_note,
+        )
+        .first()
+    )
+    if existing:
+        changed = False
+        if existing.quantity != waste_qty:
+            existing.quantity = waste_qty
+            changed = True
+        if _to_decimal(existing.unit_price_snapshot) != unit_price_snapshot:
+            existing.unit_price_snapshot = unit_price_snapshot
+            changed = True
+        if _to_decimal(existing.total_price_snapshot) != total_price_snapshot:
+            existing.total_price_snapshot = total_price_snapshot
+            changed = True
+        if _to_decimal(existing.unit_cost_snapshot) != unit_cost_snapshot:
+            existing.unit_cost_snapshot = unit_cost_snapshot
+            changed = True
+        if _to_decimal(existing.total_cost_snapshot) != total_cost_snapshot:
+            existing.total_cost_snapshot = total_cost_snapshot
+            changed = True
+        if (existing.cost_source or "") != cost_source:
+            existing.cost_source = cost_source
+            changed = True
+        if bool(existing.is_estimated_cost) != is_estimated_cost:
+            existing.is_estimated_cost = is_estimated_cost
+            changed = True
+        if recorded_by and not existing.recorded_by:
+            existing.recorded_by = recorded_by
+            changed = True
+        return changed
+
+    db.add(
+        WastageRecord(
+            source_type=WastageSourceType.PRODUCTION,
+            store_id=None,
+            product_id=batch.product_id,
+            ingredient_id=None,
+            date=batch.production_date,
+            quantity=waste_qty,
+            unit_price_snapshot=unit_price_snapshot,
+            total_price_snapshot=total_price_snapshot,
+            unit_cost_snapshot=unit_cost_snapshot,
+            total_cost_snapshot=total_cost_snapshot,
+            cost_source=cost_source,
+            is_estimated_cost=is_estimated_cost,
+            reason=WastageReason.PRODUCTION_LOSS,
+            notes=auto_note,
+            recorded_by=recorded_by,
+        )
+    )
+    return True
 
 
 def _batch_response(db: Session, batch: ProductionBatch) -> dict:
@@ -60,6 +176,11 @@ def _deduct_ingredients(db: Session, recipe_id: UUID, multiplier: int) -> None:
     for ri in recipe_ingredients:
         ingredient = db.query(Ingredient).filter(Ingredient.id == ri.ingredient_id).first()
         ing_name = ingredient.name if ingredient else str(ri.ingredient_id)
+        if ingredient and ingredient.expiry_date and ingredient.expiry_date < date.today():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot use expired ingredient '{ing_name}'. Expired on {ingredient.expiry_date}",
+            )
 
         required = Decimal(str(ri.quantity_required)) * multiplier
         stock = (
@@ -126,7 +247,78 @@ async def list_batches(
         .limit(limit)
         .all()
     )
+    has_changes = False
+    for batch in batches:
+        if batch.status == BatchStatus.COMPLETED:
+            has_changes = _sync_production_product_wastage(db, batch, batch.created_by) or has_changes
+    if has_changes:
+        db.commit()
     return [_batch_response(db, b) for b in batches]
+
+
+@router.get("/stock-summary", response_model=List[ProductionStockSummaryItem])
+async def production_stock_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role(RoleEnum.OWNER, RoleEnum.PRODUCTION_MANAGER)
+    ),
+):
+    produced_rows = (
+        db.query(
+            ProductionBatch.product_id.label("product_id"),
+            Product.name.label("product_name"),
+            Product.sku.label("product_sku"),
+            func.coalesce(func.sum(ProductionBatch.actual_yield), 0).label("produced_qty"),
+        )
+        .join(Product, Product.id == ProductionBatch.product_id)
+        .filter(ProductionBatch.status == BatchStatus.COMPLETED)
+        .group_by(ProductionBatch.product_id, Product.name, Product.sku)
+        .all()
+    )
+    dispatched_rows = (
+        db.query(
+            DistributionItem.product_id.label("product_id"),
+            func.coalesce(func.sum(DistributionItem.quantity_sent), 0).label("dispatched_qty"),
+        )
+        .group_by(DistributionItem.product_id)
+        .all()
+    )
+
+    summary_by_product: Dict[UUID, dict] = {}
+    for row in produced_rows:
+        summary_by_product[row.product_id] = {
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "product_sku": row.product_sku,
+            "produced_qty": int(row.produced_qty or 0),
+            "dispatched_qty": 0,
+            "remaining_qty": int(row.produced_qty or 0),
+        }
+
+    for row in dispatched_rows:
+        product_id = row.product_id
+        dispatched_qty = int(row.dispatched_qty or 0)
+        if product_id not in summary_by_product:
+            product = db.query(Product).filter(Product.id == product_id).first()
+            summary_by_product[product_id] = {
+                "product_id": product_id,
+                "product_name": product.name if product else "Unknown",
+                "product_sku": product.sku if product else None,
+                "produced_qty": 0,
+                "dispatched_qty": dispatched_qty,
+                "remaining_qty": -dispatched_qty,
+            }
+            continue
+
+        summary_by_product[product_id]["dispatched_qty"] = dispatched_qty
+        summary_by_product[product_id]["remaining_qty"] = (
+            summary_by_product[product_id]["produced_qty"] - dispatched_qty
+        )
+
+    return sorted(
+        summary_by_product.values(),
+        key=lambda item: ((item["product_name"] or "").lower(), item["product_sku"] or ""),
+    )
 
 
 @router.get("/batches/{batch_id}", response_model=BatchResponse)
@@ -140,6 +332,10 @@ async def get_batch(
     batch = db.query(ProductionBatch).filter(ProductionBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch not found")
+    if batch.status == BatchStatus.COMPLETED:
+        if _sync_production_product_wastage(db, batch, batch.created_by):
+            db.commit()
+            db.refresh(batch)
     return _batch_response(db, batch)
 
 
@@ -217,6 +413,7 @@ async def update_batch(
                 batch.waste_qty = update_data["waste_qty"]
             else:
                 batch.waste_qty = max(0, expected_output - (batch.actual_yield or 0))
+            _sync_production_product_wastage(db, batch, current_user.id)
         elif new_status == BatchStatus.CANCELLED and old_status == BatchStatus.PLANNED:
             batch.status = new_status
         else:

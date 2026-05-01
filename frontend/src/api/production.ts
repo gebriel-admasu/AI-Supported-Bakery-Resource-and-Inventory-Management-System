@@ -29,9 +29,23 @@ export interface UpdateBatchPayload {
   waste_qty?: number;
 }
 
+export interface ProductionStockSummaryItem {
+  product_id: string;
+  product_name: string | null;
+  product_sku: string | null;
+  produced_qty: number;
+  dispatched_qty: number;
+  remaining_qty: number;
+}
+
 export const productionApi = {
   listBatches: async (params?: { status?: string }): Promise<BatchDetail[]> => {
     const response = await apiClient.get('/production/batches', { params });
+    return response.data;
+  },
+
+  getStockSummary: async (): Promise<ProductionStockSummaryItem[]> => {
+    const response = await apiClient.get('/production/stock-summary');
     return response.data;
   },
 
