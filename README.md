@@ -112,3 +112,4 @@ uvicorn app.main:app --reload --port 8001
 11. **AI Forecasting** - Demand prediction model
 12. **MLOps** - Automated retraining pipeline
 13. **Testing & Deployment** - Tests, security, performance
+
