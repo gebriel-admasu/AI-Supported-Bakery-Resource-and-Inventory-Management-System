@@ -31,6 +31,14 @@ class DiscrepancyStatus(str, enum.Enum):
     REJECTED = "rejected"
 
 
+class PurchaseOrderStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    SENT = "sent"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+
+
 class WastageReason(str, enum.Enum):
     SPOILAGE = "spoilage"
     DAMAGE = "damage"

@@ -19,6 +19,8 @@ import {
   Warehouse,
   LogOut,
   ClipboardList,
+  Store,
+  RefreshCw,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -64,6 +66,24 @@ const navItems: NavItem[] = [
     label: 'Production',
     path: '/production',
     icon: <Factory size={20} />,
+    roles: ['owner', 'production_manager'],
+  },
+  {
+    label: 'Suppliers',
+    path: '/suppliers',
+    icon: <Store size={20} />,
+    roles: ['owner', 'production_manager'],
+  },
+  {
+    label: 'Purchase Orders',
+    path: '/purchase-orders',
+    icon: <ClipboardList size={20} />,
+    roles: ['owner', 'production_manager'],
+  },
+  {
+    label: 'Reorder Suggestions',
+    path: '/reorder-suggestions',
+    icon: <RefreshCw size={20} />,
     roles: ['owner', 'production_manager'],
   },
   {

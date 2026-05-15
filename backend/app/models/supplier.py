@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime, date, timezone
 
-from sqlalchemy import Column, String, Numeric, Date, DateTime, ForeignKey, Integer, Boolean, Uuid
+from sqlalchemy import Column, String, Numeric, Date, DateTime, ForeignKey, Integer, Boolean, Enum as SAEnum, Uuid
 
 from app.database import Base
+from app.core.constants import PurchaseOrderStatus
 
 
 class Supplier(Base):
@@ -32,6 +33,10 @@ class PurchaseOrder(Base):
     order_date = Column(Date, nullable=False, default=date.today)
     expected_delivery = Column(Date, nullable=True)
     actual_delivery = Column(Date, nullable=True)
-    status = Column(String(20), nullable=False, default='pending')
+    status = Column(
+        SAEnum(PurchaseOrderStatus, native_enum=False),
+        nullable=False,
+        default=PurchaseOrderStatus.PENDING,
+    )
     created_by = Column(Uuid, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
