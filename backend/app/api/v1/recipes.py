@@ -161,6 +161,7 @@ async def update_recipe(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
 
     update_data = body.model_dump(exclude_unset=True)
+    update_data.pop("ingredients", None)
 
     if "name" in update_data and update_data["name"] != recipe.name:
         other = (
@@ -174,12 +175,11 @@ async def update_recipe(
                 detail="An active recipe with this name already exists",
             )
 
-    ingredients_payload = update_data.pop("ingredients", None)
-
     for field, value in update_data.items():
         setattr(recipe, field, value)
 
-    if ingredients_payload is not None:
+    if "ingredients" in body.model_fields_set:
+        ingredients_payload = body.ingredients or []
         for item in ingredients_payload:
             ing = db.query(Ingredient).filter(Ingredient.id == item.ingredient_id).first()
             if not ing:
