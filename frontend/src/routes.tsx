@@ -14,6 +14,9 @@ import DistributionPage from './pages/distribution/DistributionPage';
 import SalesPage from './pages/sales/SalesPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import ForecastingPage from './pages/forecasting/ForecastingPage';
+import SuppliersPage from './pages/suppliers/SuppliersPage';
+import PurchaseOrdersPage from './pages/suppliers/PurchaseOrdersPage';
+import ReorderSuggestionsPage from './pages/suppliers/ReorderSuggestionsPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
 import StoreManagementPage from './pages/admin/StoreManagementPage';
 import AuditLogsPage from './pages/admin/AuditLogsPage';
@@ -121,6 +124,30 @@ export const router = createBrowserRouter([
             element: (
               <ProtectedRoute allowedRoles={['owner', 'production_manager']}>
                 <ForecastingPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: 'suppliers',
+            element: (
+              <ProtectedRoute allowedRoles={['owner', 'production_manager']}>
+                <SuppliersPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: 'purchase-orders',
+            element: (
+              <ProtectedRoute allowedRoles={['owner', 'production_manager']}>
+                <PurchaseOrdersPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: 'reorder-suggestions',
+            element: (
+              <ProtectedRoute allowedRoles={['owner', 'production_manager']}>
+                <ReorderSuggestionsPage />
               </ProtectedRoute>
             ),
           },

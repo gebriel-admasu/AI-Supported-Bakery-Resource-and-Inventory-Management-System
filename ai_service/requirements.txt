@@ -10,3 +10,7 @@ psycopg2-binary==2.9.9
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
 apscheduler==3.10.4
+lightgbm==4.6.0
+holidays==0.96
+scipy==1.17.1
+alembic==1.18.4

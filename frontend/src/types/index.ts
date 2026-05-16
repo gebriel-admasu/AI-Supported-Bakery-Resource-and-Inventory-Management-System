@@ -1,4 +1,4 @@
-﻿export interface User {
+export interface User {
   id: string;
   username: string;
   email: string;
@@ -99,4 +99,66 @@ export interface DemandForecast {
   predicted_qty: number;
   actual_qty?: number;
   accuracy_score?: number;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contact_person?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  lead_time_days?: number | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export type PurchaseOrderStatus =
+  | 'pending'
+  | 'approved'
+  | 'sent'
+  | 'received'
+  | 'cancelled';
+
+export interface PurchaseOrder {
+  id: string;
+  supplier_id: string;
+  supplier_name?: string | null;
+  ingredient_id: string;
+  ingredient_name?: string | null;
+  ingredient_unit?: string | null;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  order_date: string;
+  expected_delivery?: string | null;
+  actual_delivery?: string | null;
+  status: PurchaseOrderStatus;
+  created_by?: string | null;
+  created_by_username?: string | null;
+  created_at: string;
+}
+
+export interface ReorderSupplierOption {
+  supplier_id: string;
+  supplier_name: string;
+  lead_time_days?: number | null;
+  last_unit_cost?: number | null;
+  last_order_date?: string | null;
+  has_history: boolean;
+}
+
+export interface ReorderSuggestionItem {
+  ingredient_id: string;
+  ingredient_name: string;
+  ingredient_unit: string;
+  current_qty: number;
+  min_threshold: number;
+  shortage_qty: number;
+  suggested_qty: number;
+  suppliers: ReorderSupplierOption[];
+}
+
+export interface ReorderSuggestionResponse {
+  items: ReorderSuggestionItem[];
 }
