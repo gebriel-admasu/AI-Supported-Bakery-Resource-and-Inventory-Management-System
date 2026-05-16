@@ -4,7 +4,6 @@ import { ingredientsApi } from '../../api/ingredients';
 import {
   recipesApi,
   type RecipeDetail,
-  type RecipeIngredientPayload,
   type CreateRecipePayload,
   type UpdateRecipePayload,
 } from '../../api/recipes';
@@ -18,6 +17,11 @@ import {
   X,
   Trash2,
 } from 'lucide-react';
+
+type IngredientLineForm = {
+  ingredient_id: string;
+  quantity_input: string;
+};
 
 const etbFormatter = new Intl.NumberFormat('en-ET', {
   style: 'currency',
@@ -253,10 +257,10 @@ function RecipeFormModal({
   const [yieldQty, setYieldQty] = useState(recipe?.yield_qty != null ? String(recipe.yield_qty) : '');
   const [instructions, setInstructions] = useState(recipe?.instructions ?? '');
 
-  const [ingredientLines, setIngredientLines] = useState<RecipeIngredientPayload[]>(
+  const [ingredientLines, setIngredientLines] = useState<IngredientLineForm[]>(
     recipe?.ingredients.map((ri) => ({
       ingredient_id: ri.ingredient_id,
-      quantity_required: ri.quantity_required,
+      quantity_input: String(ri.quantity_required),
     })) ?? []
   );
 
@@ -279,7 +283,7 @@ function RecipeFormModal({
     if (available.length === 0) return;
     setIngredientLines((prev) => [
       ...prev,
-      { ingredient_id: available[0].id, quantity_required: 0 },
+      { ingredient_id: available[0].id, quantity_input: '' },
     ]);
   };
 
@@ -287,13 +291,9 @@ function RecipeFormModal({
     setIngredientLines((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const updateLine = (idx: number, field: keyof RecipeIngredientPayload, value: string) => {
+  const updateLine = (idx: number, field: keyof IngredientLineForm, value: string) => {
     setIngredientLines((prev) =>
-      prev.map((line, i) => {
-        if (i !== idx) return line;
-        if (field === 'ingredient_id') return { ...line, ingredient_id: value };
-        return { ...line, quantity_required: Number(value) || 0 };
-      })
+      prev.map((line, i) => (i === idx ? { ...line, [field]: value } : line))
     );
   };
 
@@ -311,13 +311,19 @@ function RecipeFormModal({
       return;
     }
 
+    const parsedIngredients: { ingredient_id: string; quantity_required: number }[] = [];
     for (const line of ingredientLines) {
-      if (line.quantity_required <= 0) {
+      const qty = Number(line.quantity_input);
+      if (!Number.isFinite(qty) || qty <= 0) {
         const ing = ingredientById.get(line.ingredient_id);
         setError(`Quantity for "${ing?.name ?? 'ingredient'}" must be greater than 0`);
         setSaving(false);
         return;
       }
+      parsedIngredients.push({
+        ingredient_id: line.ingredient_id,
+        quantity_required: qty,
+      });
     }
 
     try {
@@ -326,7 +332,7 @@ function RecipeFormModal({
           name: name.trim(),
           yield_qty: yNum,
           instructions: instructions.trim() || undefined,
-          ingredients: ingredientLines,
+          ingredients: parsedIngredients,
         };
         await recipesApi.update(recipe!.id, payload);
       } else {
@@ -334,7 +340,7 @@ function RecipeFormModal({
           name: name.trim(),
           yield_qty: yNum,
           instructions: instructions.trim() || undefined,
-          ingredients: ingredientLines,
+          ingredients: parsedIngredients,
         };
         await recipesApi.create(payload);
       }
@@ -455,11 +461,12 @@ function RecipeFormModal({
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
-                          value={line.quantity_required || ''}
-                          onChange={(e) => updateLine(idx, 'quantity_required', e.target.value)}
+                          value={line.quantity_input}
+                          onChange={(e) => updateLine(idx, 'quantity_input', e.target.value)}
                           placeholder="Qty"
                           min={0}
-                          step="any"
+                          step="0.001"
+                          inputMode="decimal"
                           required
                           className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none text-right tabular-nums"
                         />
