@@ -14,6 +14,7 @@ import DistributionPage from './pages/distribution/DistributionPage';
 import SalesPage from './pages/sales/SalesPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import ForecastingPage from './pages/forecasting/ForecastingPage';
+import AiInsightsPage from './pages/ai/AiInsightsPage';
 import SuppliersPage from './pages/suppliers/SuppliersPage';
 import PurchaseOrdersPage from './pages/suppliers/PurchaseOrdersPage';
 import ReorderSuggestionsPage from './pages/suppliers/ReorderSuggestionsPage';
@@ -124,6 +125,14 @@ export const router = createBrowserRouter([
             element: (
               <ProtectedRoute allowedRoles={['owner', 'production_manager']}>
                 <ForecastingPage />
+              </ProtectedRoute>
+            ),
+          },
+          {
+            path: 'ai-insights',
+            element: (
+              <ProtectedRoute allowedRoles={['admin', 'owner', 'production_manager']}>
+                <AiInsightsPage />
               </ProtectedRoute>
             ),
           },

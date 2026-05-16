@@ -9,6 +9,7 @@ import {
 import { type RecipeDetail, recipesApi } from '../../api/recipes';
 import { type ProductDetail, productsApi } from '../../api/products';
 import { Plus, Play, CheckCircle2, XCircle, Factory, X } from 'lucide-react';
+import SuggestedBatchesPanel from '../../components/ai/SuggestedBatchesPanel';
 
 const STATUS_OPTIONS = ['all', 'planned', 'in_progress', 'completed', 'cancelled'] as const;
 
@@ -120,6 +121,8 @@ export default function ProductionPage() {
           </button>
         </div>
       )}
+
+      <SuggestedBatchesPanel days={1} className="mb-5" />
 
       <div className="flex gap-2 mb-4 flex-wrap">
         {STATUS_OPTIONS.map((s) => (

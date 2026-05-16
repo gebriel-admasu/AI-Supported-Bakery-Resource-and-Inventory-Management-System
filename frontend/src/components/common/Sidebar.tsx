@@ -111,10 +111,10 @@ const navItems: NavItem[] = [
     roles: ['owner', 'finance_manager'],
   },
   {
-    label: 'Forecasting',
-    path: '/forecasting',
+    label: 'AI Insights',
+    path: '/ai-insights',
     icon: <Brain size={20} />,
-    roles: ['owner', 'production_manager'],
+    roles: ['admin', 'owner', 'production_manager'],
   },
   {
     label: 'User Management',

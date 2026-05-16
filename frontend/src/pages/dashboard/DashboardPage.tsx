@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Boxes,
+  Brain,
   ChefHat,
   Clock,
   DollarSign,
@@ -10,6 +11,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { aiApi } from '../../api/ai';
 import { reportsApi, type DashboardResponse } from '../../api/reports';
 import ChartCard from '../../components/reports/ChartCard';
 import KpiTile from '../../components/reports/KpiTile';
@@ -47,6 +49,13 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [aiMae, setAiMae] = useState<number | null>(null);
+
+  // Only admins/owners/production_managers can hit the /ai/* endpoints
+  // (matches the backend RBAC matrix). Skip the AI fetch entirely for
+  // other roles so we don't surface a confusing 403 in the console.
+  const canViewAi =
+    role === 'admin' || role === 'owner' || role === 'production_manager';
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +78,27 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!canViewAi) {
+      setAiMae(null);
+      return;
+    }
+    let cancelled = false;
+    aiApi
+      .modelPerformance({ window_days: 7 })
+      .then((perf) => {
+        if (!cancelled) setAiMae(perf.overall_mae);
+      })
+      .catch(() => {
+        // Silently swallow: AI not ready / no champion / network — the tile
+        // simply doesn't render. Errors here must not break the dashboard.
+        if (!cancelled) setAiMae(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewAi]);
 
   const sparklineRevenue = useMemo(
     () =>
@@ -191,6 +221,15 @@ export default function DashboardPage() {
               icon={<Boxes className="w-5 h-5" />}
             />
           </>
+        )}
+        {canViewAi && aiMae !== null && (
+          <KpiTile
+            label="Forecast MAE (7d)"
+            value={aiMae.toFixed(2)}
+            hint="Lower is better — see AI Insights"
+            icon={<Brain className="w-5 h-5" />}
+            accent="info"
+          />
         )}
       </div>
 

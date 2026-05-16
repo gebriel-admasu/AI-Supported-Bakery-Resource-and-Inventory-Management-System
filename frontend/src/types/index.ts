@@ -101,6 +101,115 @@ export interface DemandForecast {
   accuracy_score?: number;
 }
 
+export interface ForecastItem {
+  store_ref: string;
+  product_ref: string;
+  store_name?: string | null;
+  product_name?: string | null;
+  target_date: string;
+  predicted_qty: number;
+  horizon: string;
+}
+
+export interface PredictResponse {
+  model_version: number;
+  generated_at: string;
+  horizon_days: number;
+  items: ForecastItem[];
+}
+
+export interface ForecastListItem {
+  id: string;
+  model_version: number;
+  store_ref: string;
+  product_ref: string;
+  store_name?: string | null;
+  product_name?: string | null;
+  target_date: string;
+  horizon: string;
+  predicted_qty: number;
+  actual_qty?: number | null;
+  abs_error?: number | null;
+  generated_at: string;
+}
+
+export interface ForecastListResponse {
+  items: ForecastListItem[];
+  total: number;
+}
+
+export interface OptimalBatchItem {
+  product_ref: string;
+  product_name?: string | null;
+  target_date: string;
+  forecasted_demand: number;
+  suggested_batch_qty: number;
+  confidence: string;
+}
+
+export interface OptimalBatchResponse {
+  model_version: number;
+  generated_at: string;
+  horizon_days: number;
+  items: OptimalBatchItem[];
+}
+
+export type ModelStatus =
+  | 'candidate'
+  | 'champion'
+  | 'archived'
+  | 'rejected';
+
+export interface ModelRegistryItem {
+  id: string;
+  version: number;
+  status: ModelStatus | string;
+  trained_at: string;
+  training_rows_used: number;
+  training_source?: string | null;
+  holdout_mae?: number | null;
+  model_path: string;
+  promoted_at?: string | null;
+  archived_at?: string | null;
+  notes?: string | null;
+}
+
+export interface ModelRegistryListResponse {
+  champion_version: number | null;
+  items: ModelRegistryItem[];
+}
+
+export interface ModelPerformancePoint {
+  bucket_date: string;
+  mae: number;
+  predictions: number;
+}
+
+export interface ModelPerformanceResponse {
+  model_version: number;
+  window_days: number;
+  overall_mae: number | null;
+  daily: ModelPerformancePoint[];
+}
+
+export interface RetrainResponse {
+  candidate_version: number;
+  status: string;
+  holdout_mae: number;
+  training_rows: number;
+  training_source: string;
+  promoted: boolean;
+  message: string;
+}
+
+export interface BacktestResponse {
+  rows_scored: number;
+  forecasts_skipped_no_actual: number;
+  mean_abs_error: number | null;
+  window_start: string | null;
+  window_end: string | null;
+}
+
 export interface Supplier {
   id: string;
   name: string;
