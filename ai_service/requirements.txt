@@ -14,3 +14,4 @@ lightgbm==4.6.0
 holidays==0.96
 scipy==1.17.1
 alembic==1.18.4
+pytest==8.3.3
